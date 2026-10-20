@@ -1,0 +1,47 @@
+{
+  "name": "chikken-mart",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "DATABASE_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} prisma migrate deploy && DATABASE_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} vitest run tests/integration --no-file-parallelism"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "^2.5.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "prisma": "6.19.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.2",
+    "typescript": "^5",
+    "vitest": "^4.1.12"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
