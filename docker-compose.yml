@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chikken-mart-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chikken_mart
+      POSTGRES_USER: chikken
+      POSTGRES_PASSWORD: chikken
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chikken -d chikken_mart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  postgres_data:
