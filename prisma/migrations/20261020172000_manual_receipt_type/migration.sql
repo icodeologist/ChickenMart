@@ -1,0 +1,1 @@
+ALTER TYPE "MoneyMovementType" ADD VALUE 'MANUAL_RECEIPT';

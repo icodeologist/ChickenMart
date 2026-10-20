@@ -1,0 +1,500 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  CASH
+  BANK
+}
+
+enum InventoryMovementKind {
+  OPENING
+  RECEIPT
+  SALE
+  STOCK_ADJUSTMENT
+}
+
+enum StockAdjustmentReason {
+  COUNT_VARIANCE
+  SPOILAGE
+  MORTALITY
+  CORRECTION
+  OTHER
+}
+
+enum MoneyMovementType {
+  OPENING_BALANCE
+  SALE_RECEIPT
+  EXPENSE_PAYMENT
+  SUPPLIER_PAYMENT
+  CUSTOMER_COLLECTION
+  OWNER_WITHDRAWAL
+  ACCOUNT_TRANSFER
+  MONEY_ADJUSTMENT
+  MANUAL_PAYMENT
+  MANUAL_RECEIPT
+}
+
+enum PayableStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum CreditStatus {
+  OPEN
+  PARTIALLY_COLLECTED
+  COLLECTED
+  WRITTEN_OFF
+}
+
+enum SupplierPaymentMethod {
+  CASH
+  UPI
+  NET_BANKING
+}
+
+enum CustomerPaymentMethod {
+  CASH
+  UPI
+  NET_BANKING
+}
+
+enum PassbookPaymentType {
+  HARD_CASH
+  UPI
+  CREDIT
+  EXPENSE
+}
+
+model ShopSetup {
+  id                        String                     @id @default(uuid()) @db.Uuid
+  openingDate               DateTime                   @unique @db.Date
+  shopName                  String                     @db.VarChar(120)
+  createdAt                 DateTime                   @default(now()) @db.Timestamptz(6)
+  openingAccountBalances    OpeningAccountBalance[]
+  openingInventoryPositions OpeningInventoryPosition[]
+}
+
+model ChickenType {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  code               String                     @unique @db.VarChar(32)
+  name               String                     @unique @db.VarChar(80)
+  isActive           Boolean                    @default(true)
+  createdAt          DateTime                   @default(now()) @db.Timestamptz(6)
+  receiptItems       StockReceiptItem[]
+  saleItems          DailySaleItem[]
+  stockCountLines    StockCountLine[]
+  stockAdjustments   StockAdjustment[]
+  inventoryMovements InventoryMovement[]
+  openingPositions   OpeningInventoryPosition[]
+  creditSaleItems    CreditSaleItem[]
+}
+
+model ExpenseCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(80)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([isActive, sortOrder])
+}
+
+model Account {
+  id              String                  @id @default(uuid()) @db.Uuid
+  name            String                  @unique @db.VarChar(100)
+  type            AccountType
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(6)
+  moneyOut        MoneyMovement[]         @relation("MoneyOut")
+  moneyIn         MoneyMovement[]         @relation("MoneyIn")
+  openingBalances OpeningAccountBalance[]
+  reconciliations AccountReconciliation[]
+
+  @@index([type, isActive])
+}
+
+model IdempotencyKey {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique @db.VarChar(120)
+  operation String   @db.VarChar(80)
+  result    Json
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([operation, createdAt])
+}
+
+model AccountReconciliation {
+  id              String   @id @default(uuid()) @db.Uuid
+  accountId       String   @db.Uuid
+  reconciledAt    DateTime @db.Timestamptz(6)
+  actualBalance   Decimal  @db.Decimal(16, 2)
+  expectedBalance Decimal  @db.Decimal(16, 2)
+  difference      Decimal  @db.Decimal(16, 2)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, reconciledAt])
+}
+
+model Supplier {
+  id            String            @id @default(uuid()) @db.Uuid
+  name          String            @unique @db.VarChar(140)
+  phone         String?           @db.VarChar(30)
+  notes         String?           @db.Text
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now()) @db.Timestamptz(6)
+  stockReceipts StockReceipt[]
+  payables      SupplierPayable[]
+}
+
+model Customer {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique @db.VarChar(140)
+  phone       String?          @db.VarChar(30)
+  address     String?          @db.Text
+  notes       String?          @db.Text
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  credits     CustomerCredit[]
+  creditSales CreditSale[]
+}
+
+model CreditSale {
+  id          String              @id @default(uuid()) @db.Uuid
+  customerId  String              @db.Uuid
+  soldAt      DateTime            @db.Timestamptz(6)
+  totalAmount Decimal             @db.Decimal(16, 2)
+  status      CreditStatus        @default(OPEN)
+  createdAt   DateTime            @default(now()) @db.Timestamptz(6)
+  customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items       CreditSaleItem[]
+  payments    CreditSalePayment[]
+
+  @@index([customerId, soldAt])
+  @@index([status, soldAt])
+}
+
+model CreditSaleItem {
+  id                String             @id @default(uuid()) @db.Uuid
+  creditSaleId      String             @db.Uuid
+  chickenTypeId     String             @db.Uuid
+  quantityKg        Decimal            @db.Decimal(12, 3)
+  unitPrice         Decimal            @db.Decimal(16, 4)
+  lineAmount        Decimal            @db.Decimal(16, 2)
+  creditSale        CreditSale         @relation(fields: [creditSaleId], references: [id], onDelete: Restrict)
+  chickenType       ChickenType        @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  inventoryMovement InventoryMovement?
+
+  @@index([creditSaleId])
+  @@index([chickenTypeId])
+}
+
+model CreditSalePayment {
+  id              String                @id @default(uuid()) @db.Uuid
+  creditSaleId    String                @db.Uuid
+  paidAt          DateTime              @db.Timestamptz(6)
+  amount          Decimal               @db.Decimal(16, 2)
+  method          CustomerPaymentMethod
+  moneyMovementId String                @unique @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(6)
+  creditSale      CreditSale            @relation(fields: [creditSaleId], references: [id], onDelete: Restrict)
+  moneyMovement   MoneyMovement         @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([creditSaleId, paidAt])
+}
+
+model OpeningAccountBalance {
+  id              String        @id @default(uuid()) @db.Uuid
+  setupId         String        @db.Uuid
+  accountId       String        @db.Uuid
+  amount          Decimal       @db.Decimal(16, 2)
+  moneyMovementId String        @unique @db.Uuid
+  setup           ShopSetup     @relation(fields: [setupId], references: [id], onDelete: Restrict)
+  account         Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  moneyMovement   MoneyMovement @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@unique([setupId, accountId])
+  @@index([accountId])
+}
+
+model OpeningInventoryPosition {
+  id            String             @id @default(uuid()) @db.Uuid
+  setupId       String             @db.Uuid
+  chickenTypeId String             @db.Uuid
+  quantityKg    Decimal            @db.Decimal(12, 3)
+  unitCost      Decimal            @db.Decimal(16, 4)
+  setup         ShopSetup          @relation(fields: [setupId], references: [id], onDelete: Restrict)
+  chickenType   ChickenType        @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  movement      InventoryMovement?
+
+  @@unique([setupId, chickenTypeId])
+  @@index([chickenTypeId])
+}
+
+model StockReceipt {
+  id              String             @id @default(uuid()) @db.Uuid
+  receiptNumber   String             @unique @db.VarChar(50)
+  supplierId      String             @db.Uuid
+  receivedAt      DateTime           @db.Timestamptz(6)
+  supplierInvoice String?            @db.VarChar(80)
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now()) @db.Timestamptz(6)
+  supplier        Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items           StockReceiptItem[]
+  payable         SupplierPayable?
+
+  @@index([supplierId, receivedAt])
+  @@index([receivedAt])
+}
+
+model StockReceiptItem {
+  id                String             @id @default(uuid()) @db.Uuid
+  stockReceiptId    String             @db.Uuid
+  chickenTypeId     String             @db.Uuid
+  quantityKg        Decimal            @db.Decimal(12, 3)
+  birdCount         Int                @default(0)
+  wastagePerBirdKg  Decimal            @default(0.600) @db.Decimal(8, 3)
+  unitCost          Decimal            @db.Decimal(16, 4)
+  suggestedSellRate Decimal            @default(0) @db.Decimal(16, 4)
+  lineAmount        Decimal            @db.Decimal(16, 2)
+  stockReceipt      StockReceipt       @relation(fields: [stockReceiptId], references: [id], onDelete: Restrict)
+  chickenType       ChickenType        @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  inventoryMovement InventoryMovement?
+
+  @@unique([stockReceiptId, chickenTypeId])
+  @@index([chickenTypeId])
+}
+
+model DailySale {
+  id             String           @id @default(uuid()) @db.Uuid
+  businessDate   DateTime         @unique @db.Date
+  notes          String?          @db.Text
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
+  items          DailySaleItem[]
+  credits        CustomerCredit[]
+  moneyMovements MoneyMovement[]
+}
+
+model DailySaleItem {
+  id                String             @id @default(uuid()) @db.Uuid
+  dailySaleId       String             @db.Uuid
+  chickenTypeId     String             @db.Uuid
+  quantityKg        Decimal            @db.Decimal(12, 3)
+  unitSellingPrice  Decimal            @db.Decimal(16, 4)
+  lineAmount        Decimal            @db.Decimal(16, 2)
+  dailySale         DailySale          @relation(fields: [dailySaleId], references: [id], onDelete: Restrict)
+  chickenType       ChickenType        @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  inventoryMovement InventoryMovement?
+
+  @@unique([dailySaleId, chickenTypeId])
+  @@index([chickenTypeId])
+}
+
+model StockCount {
+  id        String           @id @default(uuid()) @db.Uuid
+  countedAt DateTime         @db.Timestamptz(6)
+  notes     String?          @db.Text
+  createdAt DateTime         @default(now()) @db.Timestamptz(6)
+  lines     StockCountLine[]
+
+  @@index([countedAt])
+}
+
+model StockCountLine {
+  id               String           @id @default(uuid()) @db.Uuid
+  stockCountId     String           @db.Uuid
+  chickenTypeId    String           @db.Uuid
+  expectedQuantity Decimal          @db.Decimal(12, 3)
+  countedQuantity  Decimal          @db.Decimal(12, 3)
+  stockCount       StockCount       @relation(fields: [stockCountId], references: [id], onDelete: Restrict)
+  chickenType      ChickenType      @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  adjustment       StockAdjustment?
+
+  @@unique([stockCountId, chickenTypeId])
+  @@index([chickenTypeId])
+}
+
+model StockAdjustment {
+  id                String                @id @default(uuid()) @db.Uuid
+  stockCountLineId  String?               @unique @db.Uuid
+  chickenTypeId     String                @db.Uuid
+  occurredAt        DateTime              @db.Timestamptz(6)
+  quantityKg        Decimal               @db.Decimal(12, 3)
+  unitCost          Decimal               @db.Decimal(16, 4)
+  reason            StockAdjustmentReason
+  notes             String?               @db.Text
+  createdAt         DateTime              @default(now()) @db.Timestamptz(6)
+  stockCountLine    StockCountLine?       @relation(fields: [stockCountLineId], references: [id], onDelete: Restrict)
+  chickenType       ChickenType           @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  inventoryMovement InventoryMovement?
+
+  @@index([chickenTypeId, occurredAt])
+}
+
+model InventoryMovement {
+  id                         String                    @id @default(uuid()) @db.Uuid
+  chickenTypeId              String                    @db.Uuid
+  occurredAt                 DateTime                  @db.Timestamptz(6)
+  quantityKg                 Decimal                   @db.Decimal(12, 3)
+  unitCost                   Decimal                   @db.Decimal(16, 4)
+  kind                       InventoryMovementKind
+  openingInventoryPositionId String?                   @unique @db.Uuid
+  stockReceiptItemId         String?                   @unique @db.Uuid
+  dailySaleItemId            String?                   @unique @db.Uuid
+  creditSaleItemId           String?                   @unique @db.Uuid
+  stockAdjustmentId          String?                   @unique @db.Uuid
+  reversalOfId               String?                   @unique @db.Uuid
+  createdAt                  DateTime                  @default(now()) @db.Timestamptz(6)
+  chickenType                ChickenType               @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+  openingInventoryPosition   OpeningInventoryPosition? @relation(fields: [openingInventoryPositionId], references: [id], onDelete: Restrict)
+  stockReceiptItem           StockReceiptItem?         @relation(fields: [stockReceiptItemId], references: [id], onDelete: Restrict)
+  dailySaleItem              DailySaleItem?            @relation(fields: [dailySaleItemId], references: [id], onDelete: Restrict)
+  creditSaleItem             CreditSaleItem?           @relation(fields: [creditSaleItemId], references: [id], onDelete: Restrict)
+  stockAdjustment            StockAdjustment?          @relation(fields: [stockAdjustmentId], references: [id], onDelete: Restrict)
+  reversalOf                 InventoryMovement?        @relation("InventoryReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy                 InventoryMovement?        @relation("InventoryReversal")
+
+  @@index([chickenTypeId, occurredAt])
+  @@index([occurredAt])
+}
+
+model Expense {
+  id              String        @id @default(uuid()) @db.Uuid
+  expenseDate     DateTime      @db.Date
+  category        String        @db.VarChar(80)
+  description     String        @db.Text
+  amount          Decimal       @db.Decimal(16, 2)
+  moneyMovementId String        @unique @db.Uuid
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+  moneyMovement   MoneyMovement @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([expenseDate, category])
+}
+
+model SupplierPayable {
+  id             String            @id @default(uuid()) @db.Uuid
+  stockReceiptId String            @unique @db.Uuid
+  supplierId     String            @db.Uuid
+  payableDate    DateTime          @db.Date
+  dueDate        DateTime?         @db.Date
+  originalAmount Decimal           @db.Decimal(16, 2)
+  status         PayableStatus     @default(OPEN)
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now()) @db.Timestamptz(6)
+  stockReceipt   StockReceipt      @relation(fields: [stockReceiptId], references: [id], onDelete: Restrict)
+  supplier       Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  payments       SupplierPayment[]
+
+  @@index([supplierId, status, payableDate])
+}
+
+model SupplierPayment {
+  id              String                @id @default(uuid()) @db.Uuid
+  payableId       String                @db.Uuid
+  paidAt          DateTime              @db.Timestamptz(6)
+  amount          Decimal               @db.Decimal(16, 2)
+  method          SupplierPaymentMethod @default(CASH)
+  moneyMovementId String                @unique @db.Uuid
+  notes           String?               @db.Text
+  payable         SupplierPayable       @relation(fields: [payableId], references: [id], onDelete: Restrict)
+  moneyMovement   MoneyMovement         @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([payableId, paidAt])
+}
+
+model CustomerCredit {
+  id             String               @id @default(uuid()) @db.Uuid
+  dailySaleId    String               @db.Uuid
+  customerId     String               @db.Uuid
+  creditDate     DateTime             @db.Date
+  originalAmount Decimal              @db.Decimal(16, 2)
+  status         CreditStatus         @default(OPEN)
+  notes          String?              @db.Text
+  createdAt      DateTime             @default(now()) @db.Timestamptz(6)
+  dailySale      DailySale            @relation(fields: [dailySaleId], references: [id], onDelete: Restrict)
+  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  collections    CustomerCollection[]
+
+  @@unique([dailySaleId, customerId])
+  @@index([customerId, status, creditDate])
+}
+
+model CustomerCollection {
+  id               String         @id @default(uuid()) @db.Uuid
+  customerCreditId String         @db.Uuid
+  collectedAt      DateTime       @db.Timestamptz(6)
+  amount           Decimal        @db.Decimal(16, 2)
+  moneyMovementId  String         @unique @db.Uuid
+  notes            String?        @db.Text
+  customerCredit   CustomerCredit @relation(fields: [customerCreditId], references: [id], onDelete: Restrict)
+  moneyMovement    MoneyMovement  @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([customerCreditId, collectedAt])
+}
+
+model OwnerWithdrawal {
+  id              String        @id @default(uuid()) @db.Uuid
+  withdrawnAt     DateTime      @db.Timestamptz(6)
+  amount          Decimal       @db.Decimal(16, 2)
+  purpose         String?       @db.Text
+  moneyMovementId String        @unique @db.Uuid
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+  moneyMovement   MoneyMovement @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([withdrawnAt])
+}
+
+model MoneyMovement {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  occurredAt          DateTime               @db.Timestamptz(6)
+  amount              Decimal                @db.Decimal(16, 2)
+  type                MoneyMovementType
+  fromAccountId       String?                @db.Uuid
+  toAccountId         String?                @db.Uuid
+  dailySaleId         String?                @db.Uuid
+  reversalOfId        String?                @unique @db.Uuid
+  reference           String?                @db.VarChar(100)
+  notes               String?                @db.Text
+  createdAt           DateTime               @default(now()) @db.Timestamptz(6)
+  fromAccount         Account?               @relation("MoneyOut", fields: [fromAccountId], references: [id], onDelete: Restrict)
+  toAccount           Account?               @relation("MoneyIn", fields: [toAccountId], references: [id], onDelete: Restrict)
+  dailySale           DailySale?             @relation(fields: [dailySaleId], references: [id], onDelete: Restrict)
+  reversalOf          MoneyMovement?         @relation("MoneyReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy          MoneyMovement?         @relation("MoneyReversal")
+  openingBalance      OpeningAccountBalance?
+  expense             Expense?
+  supplierPayment     SupplierPayment?
+  customerCollection  CustomerCollection?
+  ownerWithdrawal     OwnerWithdrawal?
+  creditSalePayment   CreditSalePayment?
+  manualPassbookEntry ManualPassbookEntry?
+
+  @@index([occurredAt])
+  @@index([fromAccountId, occurredAt])
+  @@index([toAccountId, occurredAt])
+  @@index([dailySaleId])
+}
+
+model ManualPassbookEntry {
+  id              String              @id @default(uuid()) @db.Uuid
+  entryDate       DateTime            @db.Timestamptz(6)
+  description     String              @db.VarChar(200)
+  amount          Decimal             @db.Decimal(16, 2)
+  paymentType     PassbookPaymentType
+  moneyMovementId String?             @unique @db.Uuid
+  createdAt       DateTime            @default(now()) @db.Timestamptz(6)
+  moneyMovement   MoneyMovement?      @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([entryDate, createdAt])
+  @@index([paymentType, entryDate])
+}
