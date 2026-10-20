@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f5f1;
+  --foreground: #1c1917;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 0;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  nav {
+    display: none !important;
+  }
+
+  .credit-print-sheet {
+    padding: 10mm;
+  }
+}
+
+/* Shared warm ledger palette. Older reporting pages used slate tokens; these
+   aliases keep every screen aligned with the Daily Entry stone/emerald system. */
+.bg-slate-50 { background-color: #fafaf9 !important; }
+.bg-slate-100 { background-color: #f5f5f4 !important; }
+.bg-slate-200 { background-color: #e7e5e4 !important; }
+.bg-slate-900 { background-color: #292524 !important; }
+.bg-slate-950 { background-color: #1c1917 !important; }
+.text-slate-300 { color: #d6d3d1 !important; }
+.text-slate-500 { color: #78716c !important; }
+.text-slate-600 { color: #57534e !important; }
+.text-slate-900, .text-slate-950 { color: #1c1917 !important; }
+.border-slate-100, .border-slate-200 { border-color: #e7e5e4 !important; }
+.divide-slate-100 > :not(:last-child) { border-color: #f5f5f4 !important; }
