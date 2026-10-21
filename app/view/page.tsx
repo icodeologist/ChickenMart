@@ -182,8 +182,9 @@ export default function ReceivedChickenView() {
               </div>
               <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Backend calculated</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1580px] border-collapse text-sm">
+            <div className="hidden xl:block">
+              <table className="w-full table-fixed border-collapse text-[11px]">
+                <colgroup><col className="w-[7%]"/><col className="w-[10%]"/><col className="w-[10%]"/><col className="w-[4%]"/><col className="w-[7%]"/><col className="w-[7%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[8%]"/><col className="w-[5%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
                     <Head>Date</Head>
@@ -206,8 +207,8 @@ export default function ReceivedChickenView() {
                   {rows.length ? rows.map((row, index) => (
                     <tr key={row.id} className={`${index % 2 ? "bg-stone-50/60" : "bg-white"} transition-colors hover:bg-emerald-50/50`}>
                       <Cell muted>{new Date(row.receivedAt).toLocaleDateString("en-IN")}</Cell>
-                      <Cell><span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 font-bold text-emerald-800">{row.supplier}</span></Cell>
-                      <Cell strong>{row.chickenType}</Cell>
+                      <Cell><span title={row.supplier} className="block max-w-full truncate rounded-md bg-emerald-50 px-1.5 py-1 font-bold text-emerald-800">{row.supplier}</span></Cell>
+                      <Cell strong><span title={row.chickenType} className="block truncate">{row.chickenType}</span></Cell>
                       <Cell right>{row.birdCount}</Cell>
                       <Cell right>{row.quantityKg} kg</Cell>
                       <Cell right>{row.averageKgPerBird} kg</Cell>
@@ -218,10 +219,10 @@ export default function ReceivedChickenView() {
                       <Cell right strong>{money(row.totalAmount)}</Cell>
                       <Cell right strong>{money(row.salesAmount)}</Cell>
                       <Cell right strong className={Number(row.profit) >= 0 ? "text-emerald-700" : "text-rose-700"}>{money(row.profit)}</Cell>
-                      <Cell right className="sticky right-0 bg-inherit shadow-[-8px_0_12px_-12px_rgba(0,0,0,.3)]">
-                        <div className="flex justify-end gap-1.5">
-                          <button type="button" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 text-xs font-semibold text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={14}/>Edit</button>
-                          <button type="button" onClick={() => void remove(row)} disabled={Boolean(busyId)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busyId === row.id ? <Loader2 className="animate-spin" size={14}/> : <Trash2 size={14}/>}Delete</button>
+                      <Cell right>
+                        <div className="flex justify-end gap-1">
+                          <button type="button" title="Edit entry" aria-label="Edit entry" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex size-6 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={12}/></button>
+                          <button type="button" title="Delete entry" aria-label="Delete entry" onClick={() => void remove(row)} disabled={Boolean(busyId)} className="inline-flex size-6 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busyId === row.id ? <Loader2 className="animate-spin" size={12}/> : <Trash2 size={12}/>}</button>
                         </div>
                       </Cell>
                     </tr>
@@ -230,6 +231,13 @@ export default function ReceivedChickenView() {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="divide-y divide-stone-200 xl:hidden">
+              {rows.length ? rows.map((row) => <article key={row.id} className="p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="max-w-full truncate rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800" title={row.supplier}>{row.supplier}</span><time className="text-xs font-semibold text-stone-500">{new Date(row.receivedAt).toLocaleDateString("en-IN")}</time></div><h3 className="mt-2 font-bold text-stone-900">{row.chickenType}</h3></div><div className="shrink-0 text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Profit</p><p className={`mt-1 text-lg font-extrabold tabular-nums ${Number(row.profit) >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{money(row.profit)}</p></div></div>
+                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-stone-50 p-4 sm:grid-cols-3 lg:grid-cols-5"><Detail label="Birds" value={String(row.birdCount)}/><Detail label="Total weight" value={`${row.quantityKg} kg`}/><Detail label="Average" value={`${row.averageKgPerBird} kg`}/><Detail label="Wastage" value={`${row.wastageKg} kg`} warn/><Detail label="Meat" value={`${row.meatKg} kg`}/><Detail label="Buy/kg" value={money(row.purchaseRate)}/><Detail label="Sell/kg" value={money(row.sellingRate)} good/><Detail label="Purchase total" value={money(row.totalAmount)}/><Detail label="Expected sales" value={money(row.salesAmount)} good/></div>
+                <div className="mt-3 flex gap-2"><button type="button" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white text-xs font-bold text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={14}/>Edit</button><button type="button" onClick={() => void remove(row)} disabled={Boolean(busyId)} className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busyId === row.id ? <Loader2 className="animate-spin" size={14}/> : <Trash2 size={14}/>}Delete</button></div>
+              </article>) : <p className="p-12 text-center text-stone-500">No chicken added yet.</p>}
             </div>
           </Card>
         )}
@@ -273,9 +281,13 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
 }
 
 function Head({ children, right, accent }: { children: ReactNode; right?: boolean; accent?: boolean }) {
-  return <th className={`whitespace-nowrap px-4 py-3 ${right ? "text-right" : "text-left"} ${accent ? "bg-emerald-100/60 text-emerald-800" : ""}`}>{children}</th>;
+  return <th className={`px-1.5 py-3 text-[9px] leading-tight ${right ? "text-right" : "text-left"} ${accent ? "bg-emerald-100/60 text-emerald-800" : ""}`}>{children}</th>;
 }
 
 function Cell({ children, right, strong, muted, className = "" }: { children: ReactNode; right?: boolean; strong?: boolean; muted?: boolean; className?: string }) {
-  return <td className={`whitespace-nowrap px-4 py-3.5 ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
+  return <td className={`min-w-0 overflow-hidden whitespace-nowrap px-1.5 py-3 ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
+}
+
+function Detail({ label, value, good, warn }: { label: string; value: string; good?: boolean; warn?: boolean }) {
+  return <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">{label}</p><p className={`mt-1 truncate text-sm font-bold tabular-nums ${good ? "text-emerald-700" : warn ? "text-amber-700" : "text-stone-800"}`} title={value}>{value}</p></div>;
 }
