@@ -20,21 +20,16 @@ export function MainNav() {
     <nav className="sticky top-0 z-30 border-b border-stone-200 bg-[#fdfcf9]/95 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link href="/" aria-label="Chicken Mart home" className="group flex shrink-0 items-center gap-2.5">
-          <span className="relative grid size-11 place-items-center rounded-full border border-stone-950 bg-stone-950 shadow-[0_5px_18px_rgba(28,25,23,0.24)] transition-transform duration-300 group-hover:rotate-6">
-            <span className="absolute inset-[3px] rounded-full border border-amber-300/60" />
-            <Swords size={27} strokeWidth={1.5} className="text-amber-300" />
-            <span className="absolute grid size-6 place-items-center rounded-full bg-stone-950 ring-1 ring-stone-700">
-              <Bird size={15} strokeWidth={2.4} className="text-stone-50" />
+          <span className="relative grid size-10 place-items-center transition-transform duration-300 group-hover:-translate-y-0.5">
+            <span className="absolute inset-1 rotate-45 rounded-[11px] bg-emerald-700 shadow-[0_5px_16px_rgba(4,120,87,0.24)]" />
+            <span className="absolute inset-[7px] rotate-45 rounded-[7px] border border-emerald-300/70" />
+            <Swords size={25} strokeWidth={1.5} className="relative text-emerald-200" />
+            <span className="absolute grid size-6 place-items-center rounded-full bg-emerald-700 ring-1 ring-emerald-300">
+              <Bird size={15} strokeWidth={2.4} className="text-white" />
             </span>
-            <span className="absolute -right-0.5 top-0.5 size-2.5 rounded-full bg-red-600 ring-2 ring-[#fdfcf9]" />
           </span>
-          <span className="flex flex-col leading-none">
-            <span className="text-base font-black uppercase italic tracking-[-0.02em] text-stone-950 sm:text-lg">Chicken</span>
-            <span className="mt-1 flex items-center gap-1 text-[0.56rem] font-black uppercase tracking-[0.28em] text-red-700">
-              <span className="h-px w-3 bg-red-700" />
-              Mart
-              <span className="h-px w-3 bg-red-700" />
-            </span>
+          <span className="text-[1.05rem] font-black leading-none tracking-[-0.035em] text-stone-900 sm:text-lg">
+            Chicken <span className="text-emerald-700">Mart</span>
           </span>
         </Link>
         <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
