@@ -7,15 +7,15 @@ import { usePathname } from "next/navigation";
 function RawChickenLegIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none">
-      <path d="m9 14.2-3.7 3.9" stroke="#fff7ed" strokeWidth="2.7" strokeLinecap="round" />
-      <path d="M5.5 17.5c-.9-.7-2.2-.2-2.3.9-.1 1 .9 1.7 1.8 1.3.1 1 1.3 1.5 2.1.9.9-.7.5-2-.5-2.3" fill="#fff7ed" />
+      <path d="m9 14.2-3.7 3.9" stroke="#ecfdf5" strokeWidth="2.7" strokeLinecap="round" />
+      <path d="M5.5 17.5c-.9-.7-2.2-.2-2.3.9-.1 1 .9 1.7 1.8 1.3.1 1 1.3 1.5 2.1.9.9-.7.5-2-.5-2.3" fill="#ecfdf5" />
       <path
         d="M8.1 14.9C5.6 12.8 5 9.2 6.7 6.5c2-3.3 6.7-4.4 9.9-2.1 3 2.1 3.5 6.4 1 9.1-2.4 2.6-6.7 3.7-9.5 1.4Z"
-        fill="#fda4af"
-        stroke="#ffe4e6"
+        fill="#6ee7b7"
+        stroke="#d1fae5"
         strokeWidth="1.1"
       />
-      <path d="M9.1 7.6c1.6-2.1 4.9-2.7 7-.9" stroke="#fecdd3" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M9.1 7.6c1.6-2.1 4.9-2.7 7-.9" stroke="#a7f3d0" strokeWidth="1.4" strokeLinecap="round" />
       <ellipse cx="14.8" cy="7.2" rx="1.5" ry=".8" transform="rotate(32 14.8 7.2)" fill="#fff" opacity=".48" />
     </svg>
   );
@@ -36,7 +36,7 @@ export function MainNav() {
   return (
     <nav className="sticky top-0 z-30 border-b border-stone-200 bg-[#fdfcf9]/95 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <Link href="/" aria-label="Chicken Mart home" className="group flex shrink-0 items-center gap-2.5">
+        <Link href="/admin" aria-label="Chicken Mart admin" className="group flex shrink-0 items-center gap-2.5">
           <span className="relative grid size-10 place-items-center transition-transform duration-300 group-hover:-translate-y-0.5">
             <span className="absolute inset-1 rotate-45 rounded-[11px] bg-emerald-700 shadow-[0_5px_16px_rgba(4,120,87,0.24)]" />
             <span className="absolute inset-[7px] rotate-45 rounded-[7px] border border-emerald-300/70" />
