@@ -254,7 +254,18 @@ export default function DailyEntryClient() {
                 <table className="w-full min-w-[760px]">
                   <thead className="bg-stone-100 text-left text-xs font-bold uppercase text-stone-600">
                     <tr>
-                      <th className="p-3">Chicken type</th>
+                      <th className="p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Chicken type</span>
+                          <button
+                            type="button"
+                            onClick={() => { setAddingChickenType((current) => !current); setError(""); }}
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-bold normal-case tracking-normal text-emerald-800 hover:text-emerald-950"
+                          >
+                            <Plus size={14} /> New type
+                          </button>
+                        </div>
+                      </th>
                       <th className="p-3">Birds</th>
                       <th className="p-3">Weight</th>
                       <th className="p-3">Purchase ₹/kg</th>
@@ -264,16 +275,6 @@ export default function DailyEntryClient() {
                   <tbody>
                     <tr className="bg-white">
                       <td className="p-3">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold uppercase text-stone-600">Type</span>
-                          <button
-                            type="button"
-                            onClick={() => { setAddingChickenType((current) => !current); setError(""); }}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:text-emerald-950"
-                          >
-                            <Plus size={14} /> New type
-                          </button>
-                        </div>
                         <select
                           required
                           value={entry.chickenTypeId}
