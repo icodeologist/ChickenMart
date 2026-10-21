@@ -30,7 +30,7 @@ type SaleForm = { soldAt: string; chickenTypeId: string; quantityKg: string; uni
 type PaymentForm = { sale: CreditSale; paidAt: string; amount: string; paymentMethod: PaymentMethod };
 
 const today = () => new Date().toISOString().slice(0, 10);
-const blankSale = (): SaleForm => ({ soldAt: today(), chickenTypeId: "", quantityKg: "", unitPrice: "", paidAmount: "0", paymentMethod: "CASH" });
+const blankSale = (): SaleForm => ({ soldAt: "", chickenTypeId: "", quantityKg: "", unitPrice: "", paidAmount: "0", paymentMethod: "CASH" });
 const fieldClass = "h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm font-medium text-stone-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 const money = (value: string) => `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))}`;
 
@@ -60,6 +60,7 @@ export default function CustomerCreditPage() {
       if (active) {
         setData(result);
         setCustomerId(result.customers[0]?.id ?? "");
+        setSaleForm((current) => current.soldAt ? current : { ...current, soldAt: today() });
       }
     }).catch((reason: Error) => { if (active) setError(reason.message); });
     return () => { active = false; };
@@ -112,7 +113,7 @@ export default function CustomerCreditPage() {
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not record sale.");
       await loadData();
-      setSaleForm(blankSale());
+      setSaleForm({ ...blankSale(), soldAt: today() });
       setNotice("Customer sale recorded.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not record sale."); }
     finally { setBusy(""); }
