@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 
 type Supplier = { id: string; name: string };
 type Context = {
-  chickenTypes: { id: string; name: string }[];
+  chickenTypes: { id: string; code: string; name: string }[];
   suppliers: Supplier[];
 };
 type Entry = {
@@ -28,6 +28,11 @@ const blank = (): Entry => ({
   suggestedSellRate: "",
 });
 const select = "h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm font-medium text-stone-900";
+const standardChickenTypes = [
+  { code: "BROILER", name: "Broiler" },
+  { code: "TYSON", name: "Tyson" },
+  { code: "LINE_CHICKEN", name: "Layer Chicken" },
+] as const;
 
 async function getContext(date: string): Promise<Context> {
   const response = await fetch(`/api/accounting/daily-entry-context?date=${date}`, { cache: "no-store" });
@@ -47,6 +52,9 @@ export default function DailyEntryClient() {
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [supplierName, setSupplierName] = useState("");
   const [supplierSaving, setSupplierSaving] = useState(false);
+  const [addingChickenType, setAddingChickenType] = useState(false);
+  const [chickenTypeCode, setChickenTypeCode] = useState("");
+  const [chickenTypeSaving, setChickenTypeSaving] = useState(false);
 
   useEffect(() => {
     setDate(new Date().toISOString().slice(0, 10));
@@ -130,6 +138,38 @@ export default function DailyEntryClient() {
       setError(reason instanceof Error ? reason.message : "Could not add chicken.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function addChickenType() {
+    const choice = standardChickenTypes.find((type) => type.code === chickenTypeCode);
+    if (!choice) {
+      setError("Choose a chicken type.");
+      return;
+    }
+
+    setChickenTypeSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/accounting/chicken-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: `chicken-type-${crypto.randomUUID()}`, ...choice }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not add chicken type.");
+
+      const refreshed = await getContext(date);
+      setData(refreshed);
+      setEntry((current) => ({ ...current, chickenTypeId: result.id }));
+      setChickenTypeCode("");
+      setAddingChickenType(false);
+      setNotice(`${choice.name} added and selected.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not add chicken type.");
+    } finally {
+      setChickenTypeSaving(false);
     }
   }
 
@@ -224,6 +264,16 @@ export default function DailyEntryClient() {
                   <tbody>
                     <tr className="bg-white">
                       <td className="p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold uppercase text-stone-600">Type</span>
+                          <button
+                            type="button"
+                            onClick={() => { setAddingChickenType((current) => !current); setError(""); }}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:text-emerald-950"
+                          >
+                            <Plus size={14} /> New type
+                          </button>
+                        </div>
                         <select
                           required
                           value={entry.chickenTypeId}
@@ -233,6 +283,24 @@ export default function DailyEntryClient() {
                           <option value="">Choose chicken</option>
                           {data.chickenTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                         </select>
+                        {addingChickenType && (
+                          <div className="mt-2 grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2">
+                            <select
+                              value={chickenTypeCode}
+                              onChange={(event) => setChickenTypeCode(event.target.value)}
+                              className={select}
+                            >
+                              <option value="">Choose standard type</option>
+                              {standardChickenTypes
+                                .filter((choice) => !data.chickenTypes.some((type) => type.code === choice.code))
+                                .map((choice) => <option key={choice.code} value={choice.code}>{choice.name}</option>)}
+                            </select>
+                            <Button type="button" disabled={chickenTypeSaving} onClick={() => void addChickenType()}>
+                              {chickenTypeSaving && <Loader2 className="mr-2 animate-spin" size={16} />}
+                              Add type
+                            </Button>
+                          </div>
+                        )}
                       </td>
                       <InputCell value={entry.birdCount} onChange={(value) => update("birdCount", value)} mode="numeric" />
                       <InputCell value={entry.quantityKg} onChange={(value) => update("quantityKg", value)} mode="decimal" />

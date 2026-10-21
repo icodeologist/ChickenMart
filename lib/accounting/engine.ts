@@ -13,6 +13,7 @@ import { AccountingError } from "@/lib/accounting/errors";
 import { D, exactLineAmount, money, rate, sum, weight, ZERO } from "@/lib/accounting/decimal";
 import {
   creditCustomerInput,
+  chickenTypeInput,
   customerCreditPaymentInput,
   customerCreditSaleInput,
   customerCollectionInput,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/accounting/schemas";
 import type {
   CreditCustomerInput,
+  ChickenTypeInput,
   CustomerCreditPaymentInput,
   CustomerCreditSaleInput,
   CustomerCollectionInput,
@@ -494,6 +496,34 @@ export async function createSupplier(input: SupplierInput) {
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new AccountingError("A supplier with this name already exists.", 409);
+    }
+    throw error;
+  }
+}
+
+export async function createChickenType(input: ChickenTypeInput) {
+  input = chickenTypeInput.parse(input);
+
+  try {
+    const result = await runIdempotent("chicken-type-create", input.idempotencyKey, async (tx) => {
+      const existing = await tx.chickenType.findFirst({
+        where: { OR: [{ code: { equals: input.code, mode: "insensitive" } }, { name: { equals: input.name, mode: "insensitive" } }] },
+        select: { id: true },
+      });
+      if (existing) throw new AccountingError("A chicken type with this name or code already exists.", 409);
+
+      return tx.chickenType.create({ data: { code: input.code.toUpperCase(), name: input.name } });
+    });
+
+    const chickenType = await prisma.chickenType.findUnique({
+      where: { id: result.id },
+      select: { id: true, code: true, name: true, isActive: true },
+    });
+    if (!chickenType) throw new AccountingError("Chicken type was not found after creation.", 500);
+    return { ...chickenType, duplicate: result.duplicate };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new AccountingError("A chicken type with this name or code already exists.", 409);
     }
     throw error;
   }
