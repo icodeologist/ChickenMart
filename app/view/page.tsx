@@ -157,7 +157,7 @@ export default function ReceivedChickenView() {
 
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
-      <div className="mx-auto max-w-[1500px]">
+      <div className="w-full">
         <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chikken Mart</p>
@@ -183,7 +183,7 @@ export default function ReceivedChickenView() {
               <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Backend calculated</span>
             </div>
             <div className="hidden xl:block">
-              <table className="w-full table-fixed border-collapse text-[11px]">
+              <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup><col className="w-[7%]"/><col className="w-[10%]"/><col className="w-[10%]"/><col className="w-[4%]"/><col className="w-[7%]"/><col className="w-[7%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[6%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[8%]"/><col className="w-[5%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
@@ -281,11 +281,11 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
 }
 
 function Head({ children, right, accent }: { children: ReactNode; right?: boolean; accent?: boolean }) {
-  return <th className={`px-1.5 py-3 text-[9px] leading-tight ${right ? "text-right" : "text-left"} ${accent ? "bg-emerald-100/60 text-emerald-800" : ""}`}>{children}</th>;
+  return <th className={`px-2 py-3 text-xs leading-tight ${right ? "text-right" : "text-left"} ${accent ? "bg-emerald-100/60 text-emerald-800" : ""}`}>{children}</th>;
 }
 
 function Cell({ children, right, strong, muted, className = "" }: { children: ReactNode; right?: boolean; strong?: boolean; muted?: boolean; className?: string }) {
-  return <td className={`min-w-0 overflow-hidden whitespace-nowrap px-1.5 py-3 ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
+  return <td className={`min-w-0 overflow-hidden whitespace-nowrap px-2 py-3.5 text-sm ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
 }
 
 function Detail({ label, value, good, warn }: { label: string; value: string; good?: boolean; warn?: boolean }) {
