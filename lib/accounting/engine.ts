@@ -27,6 +27,7 @@ import {
   receiptInput,
   reconciliationInput,
   stockCountInput,
+  supplierInput,
   supplierPaymentInput,
   supplierSettlementInput,
   transferInput,
@@ -46,6 +47,7 @@ import type {
   ReconciliationInput,
   StockCountInput,
   SupplierPaymentInput,
+  SupplierInput,
   SupplierSettlementInput,
   TransferInput,
   WastageInput,
@@ -465,6 +467,36 @@ export async function postSupplierSettlement(input: SupplierSettlementInput) {
     });
     return payment;
   });
+}
+
+export async function createSupplier(input: SupplierInput) {
+  input = supplierInput.parse(input);
+
+  try {
+    const result = await runIdempotent("supplier-create", input.idempotencyKey, async (tx) => {
+      const existing = await tx.supplier.findFirst({
+        where: { name: { equals: input.name, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (existing) throw new AccountingError("A supplier with this name already exists.", 409);
+
+      return tx.supplier.create({
+        data: { name: input.name, phone: input.phone, notes: input.notes },
+      });
+    });
+
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: result.id },
+      select: { id: true, name: true, phone: true, isActive: true },
+    });
+    if (!supplier) throw new AccountingError("Supplier was not found after creation.", 500);
+    return { ...supplier, duplicate: result.duplicate };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new AccountingError("A supplier with this name already exists.", 409);
+    }
+    throw error;
+  }
 }
 
 export async function createCreditCustomer(input: CreditCustomerInput) {

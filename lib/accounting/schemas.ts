@@ -98,6 +98,13 @@ export const supplierSettlementInput = z.object({
   notes: trimmed.max(500).optional(),
 });
 
+export const supplierInput = z.object({
+  idempotencyKey,
+  name: trimmed.min(1).max(140),
+  phone: trimmed.min(5).max(30).optional(),
+  notes: trimmed.max(2000).optional(),
+});
+
 export const manualPassbookEntryInput = z.object({
   idempotencyKey,
   entryDate: dateTime,
@@ -192,6 +199,7 @@ export type StockCountInput = z.infer<typeof stockCountInput>;
 export type ExpenseInput = z.infer<typeof expenseInput>;
 export type SupplierPaymentInput = z.infer<typeof supplierPaymentInput>;
 export type SupplierSettlementInput = z.infer<typeof supplierSettlementInput>;
+export type SupplierInput = z.infer<typeof supplierInput>;
 export type ManualPassbookEntryInput = z.infer<typeof manualPassbookEntryInput>;
 export type CreditCustomerInput = z.infer<typeof creditCustomerInput>;
 export type CustomerCreditSaleInput = z.infer<typeof customerCreditSaleInput>;
