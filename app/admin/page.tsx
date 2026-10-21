@@ -22,6 +22,9 @@ type Overview = {
   moneyAvailable: string;
   customerOutstanding: string;
   supplierOutstanding: string;
+  estimatedPurchaseCost: string;
+  estimatedSales: string;
+  estimatedProfit: string;
   customersOwing: BalanceRow[];
   suppliersOwed: BalanceRow[];
   recentActivity: Activity[];
@@ -66,8 +69,9 @@ export default function AdminPage() {
       {error ? <Card className="border-rose-200 bg-rose-50 p-6"><p className="font-bold text-rose-900">Could not load the overview</p><p className="mt-1 text-sm text-rose-700">{error}</p><Button className="mt-4" onClick={() => { setData(undefined); void load().catch((reason: Error) => setError(reason.message)); }}>Try again</Button></Card>
         : !data ? <div className="flex items-center gap-2 py-20 text-sm font-medium text-stone-500"><Loader2 className="animate-spin" size={18}/>Loading shop position…</div>
           : <>
-            <section className="grid gap-3 md:grid-cols-3" aria-label="Shop position">
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Shop position">
               <Position label="Money we have" value={data.moneyAvailable} note="Current Passbook balance" tone="money" href="/passbook"/>
+              <Position label="Total estimated profit" value={data.estimatedProfit} note={`${formatMoney(data.estimatedSales)} expected sales − ${formatMoney(data.estimatedPurchaseCost)} purchase cost`} tone="profit" href="/view"/>
               <Position label="Customers owe us" value={data.customerOutstanding} note={`${data.customersOwing.length} customer${data.customersOwing.length === 1 ? "" : "s"} with balance`} tone="customer" href="/credit-page"/>
               <Position label="We owe suppliers" value={data.supplierOutstanding} note={`${data.suppliersOwed.length} supplier${data.suppliersOwed.length === 1 ? "" : "s"} pending`} tone="supplier" href="/credit-line"/>
             </section>
@@ -90,8 +94,9 @@ export default function AdminPage() {
   </main>;
 }
 
-function Position({ label, value, note, tone, href }: { label: string; value: string; note: string; tone: "money" | "customer" | "supplier"; href: string }) {
-  const colors = tone === "money" ? "border-emerald-900 bg-emerald-950 text-white" : tone === "customer" ? "border-amber-200 bg-amber-50 text-stone-900" : "border-rose-200 bg-rose-50 text-stone-900";
+function Position({ label, value, note, tone, href }: { label: string; value: string; note: string; tone: "money" | "profit" | "customer" | "supplier"; href: string }) {
+  const profitNegative = tone === "profit" && value.startsWith("-");
+  const colors = tone === "money" ? "border-emerald-900 bg-emerald-950 text-white" : tone === "profit" ? profitNegative ? "border-rose-200 bg-rose-50 text-rose-950" : "border-emerald-200 bg-emerald-50 text-emerald-950" : tone === "customer" ? "border-amber-200 bg-amber-50 text-stone-900" : "border-rose-200 bg-rose-50 text-stone-900";
   return <Link href={href} className={`rounded-xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${colors}`}><p className={`text-xs font-bold uppercase tracking-[.12em] ${tone === "money" ? "text-emerald-300" : "text-stone-500"}`}>{label}</p><p className="mt-3 text-3xl font-extrabold tabular-nums tracking-tight">{formatMoney(value)}</p><p className={`mt-2 text-xs ${tone === "money" ? "text-emerald-100/70" : "text-stone-500"}`}>{note}</p></Link>;
 }
 

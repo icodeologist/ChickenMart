@@ -57,6 +57,29 @@ type IdempotentResult = { id: string; duplicate: boolean };
 type InventoryState = { quantityKg: Prisma.Decimal; value: Prisma.Decimal };
 type InventoryEffect = { quantityKg: Prisma.Decimal; valueDelta: Prisma.Decimal; issuedCost?: Prisma.Decimal; kind: InventoryMovementKind; occurredAt: Date; spoilage: boolean };
 
+export function calculateReceiptEstimate(input: {
+  quantityKg: Prisma.Decimal.Value;
+  birdCount: number;
+  wastagePerBirdKg: Prisma.Decimal.Value;
+  purchaseRate: Prisma.Decimal.Value;
+  sellingRate: Prisma.Decimal.Value;
+  storedTotalAmount?: Prisma.Decimal.Value;
+}) {
+  const quantityKg = weight(input.quantityKg);
+  const purchaseRate = rate(input.purchaseRate);
+  const sellingRate = rate(input.sellingRate);
+  const totalAmount = exactLineAmount(quantityKg, purchaseRate);
+  if (input.storedTotalAmount !== undefined && !money(input.storedTotalAmount).equals(totalAmount)) {
+    throw new AccountingError("Stored purchase total does not match total weight × buy rate.", 500);
+  }
+  const wastageKg = weight(D(input.birdCount).mul(weight(input.wastagePerBirdKg)));
+  if (wastageKg.greaterThan(quantityKg)) throw new AccountingError("Wastage cannot exceed total chicken weight.", 500);
+  const meatKg = weight(quantityKg.minus(wastageKg));
+  const salesAmount = money(meatKg.mul(sellingRate));
+  const profit = money(salesAmount.minus(totalAmount));
+  return { quantityKg, purchaseRate, sellingRate, totalAmount, wastageKg, meatKg, salesAmount, profit };
+}
+
 function toDateOnly(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
@@ -726,16 +749,19 @@ export async function getRecentChickenReceipts(limit = 25) {
     include: { supplier: { select: { name: true } }, items: { include: { chickenType: { select: { name: true } } } } },
   });
   return receipts.flatMap((receipt) => receipt.items.map((item) => {
-    const quantityKg = D(item.quantityKg);
+    const estimate = calculateReceiptEstimate({
+      quantityKg: item.quantityKg,
+      birdCount: item.birdCount,
+      wastagePerBirdKg: item.wastagePerBirdKg,
+      purchaseRate: item.unitCost,
+      sellingRate: item.suggestedSellRate,
+      storedTotalAmount: item.lineAmount,
+    });
+    const quantityKg = estimate.quantityKg;
     const birds = D(item.birdCount);
-    const totalAmount = money(item.lineAmount);
     const averageKgPerBird = item.birdCount > 0 ? weight(quantityKg.div(birds)) : ZERO;
     const wastagePerBirdKg = weight(item.wastagePerBirdKg);
-    const wastageKg = weight(birds.mul(wastagePerBirdKg));
-    const meatKg = weight(quantityKg.minus(wastageKg));
-    const salesAmount = money(meatKg.mul(item.suggestedSellRate));
-    const profit = money(salesAmount.minus(totalAmount));
-    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: item.unitCost, totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg, meatKg, sellingRate: item.suggestedSellRate, salesAmount, profit };
+    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: estimate.purchaseRate, totalAmount: estimate.totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg: estimate.wastageKg, meatKg: estimate.meatKg, sellingRate: estimate.sellingRate, salesAmount: estimate.salesAmount, profit: estimate.profit };
   }));
 }
 
@@ -969,7 +995,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
 }
 
 export async function getAdminOverview() {
-  const [passbook, creditSales, supplierPayables] = await Promise.all([
+  const [passbook, creditSales, supplierPayables, activeReceipts] = await Promise.all([
     getPurchasePassbook({ sort: "RECENT" }),
     prisma.creditSale.findMany({
       where: { status: { not: CreditStatus.WRITTEN_OFF } },
@@ -979,7 +1005,20 @@ export async function getAdminOverview() {
       where: { status: { not: PayableStatus.VOID } },
       include: { supplier: { select: { id: true, name: true } }, payments: { select: { amount: true } } },
     }),
+    prisma.stockReceipt.findMany({
+      where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
+      select: { items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
+    }),
   ]);
+
+  const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => calculateReceiptEstimate({
+    quantityKg: item.quantityKg,
+    birdCount: item.birdCount,
+    wastagePerBirdKg: item.wastagePerBirdKg,
+    purchaseRate: item.unitCost,
+    sellingRate: item.suggestedSellRate,
+    storedTotalAmount: item.lineAmount,
+  })));
 
   const customerMap = new Map<string, { id: string; name: string; phone: string | null; amount: Prisma.Decimal }>();
   for (const sale of creditSales) {
@@ -1027,6 +1066,9 @@ export async function getAdminOverview() {
     moneyAvailable: passbook.currentBalance,
     customerOutstanding: passbook.customerOutstanding,
     supplierOutstanding: money(sum(suppliersOwed.map((supplier) => supplier.amount))),
+    estimatedPurchaseCost: money(sum(receiptEstimates.map((estimate) => estimate.totalAmount))),
+    estimatedSales: money(sum(receiptEstimates.map((estimate) => estimate.salesAmount))),
+    estimatedProfit: money(sum(receiptEstimates.map((estimate) => estimate.profit))),
     customersOwing,
     suppliersOwed,
     recentActivity,

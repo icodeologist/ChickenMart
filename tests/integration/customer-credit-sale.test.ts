@@ -117,6 +117,7 @@ describe("customer credit sales", () => {
     const overview = await getAdminOverview();
     expect(overview.moneyAvailable.toFixed(2)).toBe(afterPayment.currentBalance.toFixed(2));
     expect(overview.customerOutstanding.toFixed(2)).toBe(afterPayment.customerOutstanding.toFixed(2));
+    expect(overview.estimatedSales.minus(overview.estimatedPurchaseCost).toFixed(2)).toBe(overview.estimatedProfit.toFixed(2));
     expect(overview.customersOwing.find((customer) => customer.id === customerId)?.amount.toFixed(2)).toBe("120.00");
     expect(overview.recentActivity.some((entry) => entry.entryType === "CUSTOMER_PAYMENT" && entry.amount.toFixed(2) === "80.00")).toBe(true);
   });
