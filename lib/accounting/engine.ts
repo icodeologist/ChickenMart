@@ -995,7 +995,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
 }
 
 export async function getAdminOverview() {
-  const [passbook, creditSales, supplierPayables, activeReceipts] = await Promise.all([
+  const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers] = await Promise.all([
     getPurchasePassbook({ sort: "RECENT" }),
     prisma.creditSale.findMany({
       where: { status: { not: CreditStatus.WRITTEN_OFF } },
@@ -1009,6 +1009,7 @@ export async function getAdminOverview() {
       where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
       select: { items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
     }),
+    prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
   const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => calculateReceiptEstimate({
@@ -1029,7 +1030,10 @@ export async function getAdminOverview() {
     else customerMap.set(sale.customer.id, { id: sale.customer.id, name: sale.customer.name, phone: sale.customer.phone, amount: remaining });
   }
 
-  const supplierMap = new Map<string, { id: string; name: string; amount: Prisma.Decimal }>();
+  const mainSuppliers = activeSuppliers.filter((supplier) => ["KSP", "NPF"].includes(supplier.name.trim().toUpperCase()));
+  const supplierMap = new Map<string, { id: string; name: string; amount: Prisma.Decimal }>(
+    mainSuppliers.map((supplier) => [supplier.id, { ...supplier, amount: money(ZERO) }]),
+  );
   for (const payable of supplierPayables) {
     const remaining = money(D(payable.originalAmount).minus(sum(payable.payments.map((payment) => payment.amount))));
     if (!remaining.greaterThan(ZERO)) continue;
@@ -1040,6 +1044,7 @@ export async function getAdminOverview() {
 
   const customersOwing = [...customerMap.values()].sort((left, right) => right.amount.comparedTo(left.amount) || left.name.localeCompare(right.name));
   const suppliersOwed = [...supplierMap.values()].sort((left, right) => right.amount.comparedTo(left.amount) || left.name.localeCompare(right.name));
+  const suppliersPendingCount = suppliersOwed.filter((supplier) => supplier.amount.greaterThan(ZERO)).length;
   const recentActivity = passbook.entries.slice(0, 8).map((entry) => {
     const amount = entry.entryType === "PURCHASE" ? entry.debitAmount
       : entry.entryType === "PAYMENT" ? entry.creditAmount
@@ -1069,6 +1074,7 @@ export async function getAdminOverview() {
     estimatedPurchaseCost: money(sum(receiptEstimates.map((estimate) => estimate.totalAmount))),
     estimatedSales: money(sum(receiptEstimates.map((estimate) => estimate.salesAmount))),
     estimatedProfit: money(sum(receiptEstimates.map((estimate) => estimate.profit))),
+    suppliersPendingCount,
     customersOwing,
     suppliersOwed,
     recentActivity,

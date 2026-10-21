@@ -25,6 +25,7 @@ type Overview = {
   estimatedPurchaseCost: string;
   estimatedSales: string;
   estimatedProfit: string;
+  suppliersPendingCount: number;
   customersOwing: BalanceRow[];
   suppliersOwed: BalanceRow[];
   recentActivity: Activity[];
@@ -73,7 +74,7 @@ export default function AdminPage() {
               <Position label="Money we have" value={data.moneyAvailable} note="Current Passbook balance" tone="money" href="/passbook"/>
               <Position label="Total estimated profit" value={data.estimatedProfit} note={`${formatMoney(data.estimatedSales)} expected sales − ${formatMoney(data.estimatedPurchaseCost)} purchase cost`} tone="profit" href="/view"/>
               <Position label="Customers owe us" value={data.customerOutstanding} note={`${data.customersOwing.length} customer${data.customersOwing.length === 1 ? "" : "s"} with balance`} tone="customer" href="/credit-page"/>
-              <Position label="We owe suppliers" value={data.supplierOutstanding} note={`${data.suppliersOwed.length} supplier${data.suppliersOwed.length === 1 ? "" : "s"} pending`} tone="supplier" href="/credit-line"/>
+              <Position label="We owe suppliers" value={data.supplierOutstanding} note={`${data.suppliersPendingCount} supplier${data.suppliersPendingCount === 1 ? "" : "s"} with payment pending`} tone="supplier" href="/credit-line"/>
             </section>
 
             <section className="mt-5 grid gap-5 lg:grid-cols-2">
