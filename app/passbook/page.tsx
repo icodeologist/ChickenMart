@@ -153,7 +153,7 @@ export default function PassbookPage() {
       <div className="mx-auto max-w-[1600px]">
         <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chikken Mart</p>
+            <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Passbook</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">Only money actually received increases the balance. Customer credit is tracked separately until the customer pays.</p>
           </div>

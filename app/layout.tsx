@@ -4,7 +4,7 @@ import { MainNav } from "@/components/main-nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Chikken Mart",
+  title: "Chicken Mart",
   description: "Chicken shop cashflow and profit tracker",
 };
 

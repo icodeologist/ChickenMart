@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, ClipboardList, CreditCard, LayoutDashboard, PlusCircle, Users } from "lucide-react";
+import { Bird, BookOpen, ClipboardList, CreditCard, LayoutDashboard, PlusCircle, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 const links = [
@@ -19,8 +19,14 @@ export function MainNav() {
   return (
     <nav className="sticky top-0 z-30 border-b border-stone-200 bg-[#fdfcf9]/95 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <Link href="/" className="shrink-0 text-lg font-bold tracking-tight text-stone-900">
-          Chikken<span className="text-emerald-700">Mart</span>
+        <Link href="/" aria-label="Chicken Mart home" className="group flex shrink-0 items-center gap-2.5">
+          <span className="relative grid size-10 place-items-center overflow-hidden rounded-[14px] bg-emerald-700 text-white shadow-[0_5px_16px_rgba(4,120,87,0.24)] transition-transform group-hover:-rotate-3">
+            <Bird size={23} strokeWidth={2.4} />
+            <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-amber-300 ring-2 ring-emerald-700" />
+          </span>
+          <span className="text-[1.05rem] font-black leading-none tracking-[-0.035em] text-stone-900 sm:text-lg">
+            Chicken <span className="text-emerald-700">Mart</span>
+          </span>
         </Link>
         <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
           {links.map(({ href, label, mobileLabel, icon: Icon }) => {

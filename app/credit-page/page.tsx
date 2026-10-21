@@ -147,7 +147,7 @@ export default function CustomerCreditPage() {
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
       <div className="mx-auto max-w-[1500px] space-y-6 print:hidden">
         <header>
-          <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chikken Mart</p>
+          <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Customer credit</h1>
           <p className="mt-1 text-sm text-stone-500">Record customer sales and money they still owe.</p>
         </header>

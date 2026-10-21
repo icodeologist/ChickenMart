@@ -130,7 +130,7 @@ export default function CreditLinePage() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chikken Mart</p>
+            <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">Credit line</h1>
             <p className="mt-1 text-sm text-stone-500">Track supplier payments and remaining balances.</p>
           </div>
