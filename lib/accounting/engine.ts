@@ -109,6 +109,14 @@ async function requirePaymentAccount(tx: Prisma.TransactionClient, accountId: st
   return requireAccount(tx, accountId, method === "CASH" ? AccountType.CASH : AccountType.BANK);
 }
 
+async function requireCustomerPaymentAccount(tx: Prisma.TransactionClient, accountId: string | undefined, method: "CASH" | "UPI" | "NET_BANKING") {
+  if (accountId) return requirePaymentAccount(tx, accountId, method);
+  const type = method === "CASH" ? AccountType.CASH : AccountType.BANK;
+  const existing = await tx.account.findFirst({ where: { type, isActive: true }, orderBy: { createdAt: "asc" } });
+  if (existing) return existing;
+  return tx.account.create({ data: { name: type === AccountType.CASH ? "Shop Cash" : "Shop Bank", type } });
+}
+
 async function requireActiveChickenTypes(tx: Prisma.TransactionClient, ids: string[]) {
   const types = await tx.chickenType.findMany({ where: { id: { in: ids }, isActive: true } });
   if (types.length !== ids.length) throw new AccountingError("One or more chicken types are not active.", 404);
@@ -589,7 +597,7 @@ export async function postCustomerCreditPayment(input: CustomerCreditPaymentInpu
     const sale = await tx.creditSale.findUnique({ where: { id: input.creditSaleId }, include: { payments: true, customer: true } });
     if (!sale) throw new AccountingError("Customer sale was not found.", 404);
     if (sale.status === CreditStatus.COLLECTED) throw new AccountingError("This sale is already fully paid.", 409);
-    await requirePaymentAccount(tx, input.accountId, input.paymentMethod);
+    const account = await requireCustomerPaymentAccount(tx, input.accountId, input.paymentMethod);
 
     const paid = money(sum(sale.payments.map((payment) => payment.amount)));
     const remaining = money(D(sale.totalAmount).minus(paid));
@@ -597,7 +605,7 @@ export async function postCustomerCreditPayment(input: CustomerCreditPaymentInpu
     if (amount.greaterThan(remaining)) throw new AccountingError("Payment exceeds the remaining customer balance.", 409);
 
     const movement = await tx.moneyMovement.create({
-      data: { occurredAt: input.paidAt, amount, type: MoneyMovementType.CUSTOMER_COLLECTION, toAccountId: input.accountId, reference: sale.id, notes: `Payment from ${sale.customer.name}` },
+      data: { occurredAt: input.paidAt, amount, type: MoneyMovementType.CUSTOMER_COLLECTION, toAccountId: account.id, reference: sale.id, notes: `Payment from ${sale.customer.name}` },
     });
     const payment = await tx.creditSalePayment.create({
       data: { creditSaleId: sale.id, paidAt: input.paidAt, amount, method: input.paymentMethod, moneyMovementId: movement.id },

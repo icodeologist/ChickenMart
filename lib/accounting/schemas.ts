@@ -155,7 +155,7 @@ export const customerCreditPaymentInput = z.object({
   paidAt: dateTime,
   amount: moneyString,
   paymentMethod: customerPaymentMethod,
-  accountId: uuid,
+  accountId: uuid.optional(),
 });
 export const customerCollectionInput = z.object({ idempotencyKey, customerCreditId: uuid, collectedAt: dateTime, accountId: uuid, amount: moneyString, notes: trimmed.max(2000).optional() });
 export const ownerWithdrawalInput = z.object({ idempotencyKey, withdrawnAt: dateTime, accountId: uuid, amount: moneyString, purpose: trimmed.max(2000).optional() });
