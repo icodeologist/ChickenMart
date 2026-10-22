@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: chikken_mart
+          POSTGRES_USER: chikken
+          POSTGRES_PASSWORD: chikken
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U chikken -d chikken_mart"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test
+      DIRECT_URL: postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Apply test migrations
+        run: npx prisma migrate deploy
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Integration tests
+        run: npm run test:integration
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
+

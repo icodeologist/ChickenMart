@@ -121,4 +121,31 @@ describe("customer credit sales", () => {
     expect(overview.customersOwing.find((customer) => customer.id === customerId)?.amount.toFixed(2)).toBe("120.00");
     expect(overview.recentActivity.some((entry) => entry.entryType === "CUSTOMER_PAYMENT" && entry.amount.toFixed(2) === "80.00")).toBe(true);
   });
+
+  it("resolves an account when a customer payment has no account id", async () => {
+    const saleResult = await postCustomerCreditSale({
+      idempotencyKey: `${key}-missing-account-sale`,
+      customerId,
+      soldAt: new Date("2026-10-21T10:00:00.000Z"),
+      chickenTypeId,
+      quantityKg: "1.000",
+      unitPrice: "200.0000",
+      paidAmount: "0",
+      paymentMethod: "CREDIT",
+    });
+
+    const paymentResult = await postCustomerCreditPayment({
+      idempotencyKey: `${key}-missing-account-payment`,
+      creditSaleId: saleResult.id,
+      paidAt: new Date("2026-10-21T11:00:00.000Z"),
+      amount: "25.00",
+      paymentMethod: "UPI",
+    });
+
+    const payment = await prisma.creditSalePayment.findUniqueOrThrow({
+      where: { id: paymentResult.id },
+      include: { moneyMovement: { include: { toAccount: true } } },
+    });
+    expect(payment.moneyMovement?.toAccount?.type).toBe("BANK");
+  });
 });

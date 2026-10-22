@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerCreditSaleInput } from "@/lib/accounting/schemas";
+import { customerCreditPaymentInput, customerCreditSaleInput } from "@/lib/accounting/schemas";
 
 const validSale = {
   idempotencyKey: "customer-credit-schema-test",
@@ -39,5 +39,19 @@ describe("customer credit sale validation", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("customer credit payment validation", () => {
+  it("allows the server to resolve the payment account when none is configured", () => {
+    const result = customerCreditPaymentInput.safeParse({
+      idempotencyKey: "customer-credit-payment-schema-test",
+      creditSaleId: "33333333-3333-4333-8333-333333333333",
+      paidAt: "2026-10-21T18:00:00.000Z",
+      amount: "10.00",
+      paymentMethod: "CASH",
+    });
+
+    expect(result.success).toBe(true);
   });
 });
