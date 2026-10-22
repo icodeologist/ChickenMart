@@ -109,7 +109,7 @@ async function requirePaymentAccount(tx: Prisma.TransactionClient, accountId: st
   return requireAccount(tx, accountId, method === "CASH" ? AccountType.CASH : AccountType.BANK);
 }
 
-async function requireCustomerPaymentAccount(tx: Prisma.TransactionClient, accountId: string | undefined, method: "CASH" | "UPI" | "NET_BANKING") {
+async function requireOrCreatePaymentAccount(tx: Prisma.TransactionClient, accountId: string | undefined, method: "CASH" | "UPI" | "NET_BANKING") {
   if (accountId) return requirePaymentAccount(tx, accountId, method);
   const type = method === "CASH" ? AccountType.CASH : AccountType.BANK;
   const existing = await tx.account.findFirst({ where: { type, isActive: true }, orderBy: { createdAt: "asc" } });
@@ -462,9 +462,9 @@ export async function postSupplierSettlement(input: SupplierSettlementInput) {
     const paymentAmount = money(input.paymentAmount);
     if (paymentAmount.greaterThan(remaining)) throw new AccountingError("Payment exceeds the remaining amount.", 409);
 
-    await requireAccount(tx, input.accountId);
+    const account = await requireOrCreatePaymentAccount(tx, input.accountId, input.paymentMethod);
     const movement = await tx.moneyMovement.create({
-      data: { occurredAt: input.paidAt, amount: paymentAmount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: input.accountId, reference: payable.id, notes: input.notes },
+      data: { occurredAt: input.paidAt, amount: paymentAmount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: account.id, reference: payable.id, notes: input.notes },
     });
     const payment = await tx.supplierPayment.create({
       data: { payableId: payable.id, paidAt: input.paidAt, amount: paymentAmount, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes },
@@ -597,7 +597,7 @@ export async function postCustomerCreditPayment(input: CustomerCreditPaymentInpu
     const sale = await tx.creditSale.findUnique({ where: { id: input.creditSaleId }, include: { payments: true, customer: true } });
     if (!sale) throw new AccountingError("Customer sale was not found.", 404);
     if (sale.status === CreditStatus.COLLECTED) throw new AccountingError("This sale is already fully paid.", 409);
-    const account = await requireCustomerPaymentAccount(tx, input.accountId, input.paymentMethod);
+    const account = await requireOrCreatePaymentAccount(tx, input.accountId, input.paymentMethod);
 
     const paid = money(sum(sale.payments.map((payment) => payment.amount)));
     const remaining = money(D(sale.totalAmount).minus(paid));

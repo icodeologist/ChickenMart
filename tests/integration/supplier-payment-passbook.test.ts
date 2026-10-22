@@ -7,7 +7,6 @@ const keyPrefix = "supplier-payment-passbook-test";
 const receiptNumber = "SUPPLIER-PAYMENT-PASSBOOK-TEST";
 const supplierName = "Supplier Payment Passbook Test";
 const chickenCode = "SUPPLIER_PAYMENT_TEST";
-const accountName = "Supplier Payment Test Cash";
 
 async function cleanup() {
   const receipt = await prisma.stockReceipt.findUnique({
@@ -29,24 +28,20 @@ async function cleanup() {
   await prisma.idempotencyKey.deleteMany({ where: { key: { startsWith: keyPrefix } } });
   await prisma.supplier.deleteMany({ where: { name: supplierName } });
   await prisma.chickenType.deleteMany({ where: { code: chickenCode } });
-  await prisma.account.deleteMany({ where: { name: accountName } });
 }
 
 describe("supplier payments in the passbook", () => {
   let supplierId = "";
   let chickenTypeId = "";
-  let accountId = "";
 
   beforeAll(async () => {
     await cleanup();
-    const [supplier, chickenType, account] = await Promise.all([
+    const [supplier, chickenType] = await Promise.all([
       prisma.supplier.create({ data: { name: supplierName } }),
       prisma.chickenType.create({ data: { code: chickenCode, name: "Supplier Payment Test Chicken" } }),
-      prisma.account.create({ data: { name: accountName, type: "CASH" } }),
     ]);
     supplierId = supplier.id;
     chickenTypeId = chickenType.id;
-    accountId = account.id;
   });
 
   afterAll(async () => {
@@ -78,7 +73,6 @@ describe("supplier payments in the passbook", () => {
       idempotencyKey: `${keyPrefix}-payment`,
       payableId: payable.id,
       paidAt: new Date("2026-10-22T10:00:00.000Z"),
-      accountId,
       paymentAmount: "200.00",
       paymentMethod: "CASH",
     });
@@ -88,7 +82,7 @@ describe("supplier payments in the passbook", () => {
       include: { moneyMovement: true },
     });
     expect(savedPayment.moneyMovement.type).toBe(MoneyMovementType.SUPPLIER_PAYMENT);
-    expect(savedPayment.moneyMovement.fromAccountId).toBe(accountId);
+    expect(savedPayment.moneyMovement.fromAccountId).not.toBeNull();
     expect((await getPurchasePassbook()).currentBalance.minus(afterPurchase).toFixed(2)).toBe("-200.00");
   });
 });

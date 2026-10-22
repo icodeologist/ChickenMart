@@ -92,7 +92,7 @@ export const supplierSettlementInput = z.object({
   idempotencyKey,
   payableId: uuid,
   paidAt: dateTime,
-  accountId: uuid,
+  accountId: uuid.optional(),
   paymentAmount: moneyString,
   paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
   notes: trimmed.max(500).optional(),

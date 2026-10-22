@@ -35,7 +35,7 @@ export function MainNav() {
 
   return (
     <nav className="sticky top-0 z-30 border-b border-stone-200 bg-[#fdfcf9]/95 backdrop-blur print:hidden">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link href="/admin" aria-label="Chicken Mart admin" className="group flex shrink-0 items-center gap-2.5">
           <span className="relative grid size-10 place-items-center transition-transform duration-300 group-hover:-translate-y-0.5">
             <span className="absolute inset-1 rotate-45 rounded-[11px] bg-emerald-700 shadow-[0_5px_16px_rgba(4,120,87,0.24)]" />

@@ -61,7 +61,7 @@ export default function AdminPage() {
   }, []);
 
   return <main className="min-h-screen bg-[#f7f5f1] px-4 py-6 text-stone-900 sm:px-6 lg:py-8">
-    <div className="mx-auto max-w-6xl">
+    <div className="w-full">
       <header className="mb-6 flex items-end justify-between gap-4">
         <div><p className="text-sm font-bold uppercase tracking-[.16em] text-emerald-700">ChickenMart - Avin</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Admin overview</h1><p className="mt-1 text-sm text-stone-500">What the shop has, owes, and needs to collect.</p></div>
         <button type="button" onClick={() => { setError(""); setData(undefined); void load().catch((reason: Error) => setError(reason.message)); }} className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><RefreshCw size={16}/>Refresh</button>

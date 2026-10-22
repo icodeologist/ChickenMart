@@ -176,8 +176,8 @@ export default function DailyEntryClient() {
   const update = (key: keyof Entry, value: string) => setEntry({ ...entry, [key]: value });
 
   return (
-    <main className="min-h-screen bg-[#f7f5f1] pb-16 text-stone-900">
-      <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+    <main className="min-h-screen bg-[#f7f5f1] p-4 pb-16 text-stone-900 sm:p-6 sm:pb-16">
+      <div className="w-full space-y-6">
         <header className="flex justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
@@ -251,7 +251,8 @@ export default function DailyEntryClient() {
               </div>
 
               <div className="overflow-x-auto rounded-xl border">
-                <table className="w-full min-w-[760px]">
+                <table className="w-full min-w-[760px] table-fixed">
+                  <colgroup><col className="w-[28%]"/><col className="w-[14%]"/><col className="w-[18%]"/><col className="w-[20%]"/><col className="w-[20%]"/></colgroup>
                   <thead className="bg-stone-100 text-left text-xs font-bold uppercase text-stone-600">
                     <tr>
                       <th className="p-3">

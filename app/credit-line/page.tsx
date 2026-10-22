@@ -127,7 +127,7 @@ export default function CreditLinePage() {
 
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
-      <div className="mx-auto max-w-6xl">
+      <div className="w-full">
         <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
@@ -158,8 +158,9 @@ export default function CreditLinePage() {
                 <p className="text-xs text-stone-500">{filteredRows.length} {filteredRows.length === 1 ? "entry" : "entries"}</p>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1200px] border-collapse text-sm">
+            <div className="overflow-x-auto xl:overflow-visible">
+              <table className="w-full min-w-[1080px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
+                <colgroup><col className="w-[8%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[5%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[11%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[8%]"/><col className="w-[15%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
                     <Head>Date</Head>
@@ -223,7 +224,7 @@ export default function CreditLinePage() {
                       <option value="NET_BANKING">Net Banking</option>
                     </select>
                   </Field>
-                  <Field label="Payment amount"><Input inputMode="decimal" placeholder="0.00" value={settlement.paymentAmount} onChange={(event) => updateSettlement("paymentAmount", event.target.value)}/></Field>
+                  <Field label="Payment amount"><Input required inputMode="decimal" placeholder="0.00" value={settlement.paymentAmount} onChange={(event) => updateSettlement("paymentAmount", event.target.value)}/></Field>
                 </div>
                 <div className="flex justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4">
                   <Button type="button" className="border border-stone-300 bg-white text-stone-700 shadow-none hover:bg-stone-100" onClick={() => setSettlement(undefined)}>Cancel</Button>
@@ -252,9 +253,9 @@ function formatMethod(method: string | null) {
 }
 
 function Head({ children, right }: { children: ReactNode; right?: boolean }) {
-  return <th className={`whitespace-nowrap px-4 py-3 ${right ? "text-right" : "text-left"}`}>{children}</th>;
+  return <th className={`px-2 py-3 text-[11px] leading-tight ${right ? "text-right" : "text-left"}`}>{children}</th>;
 }
 
 function Cell({ children, right, strong, muted, className = "" }: { children: ReactNode; right?: boolean; strong?: boolean; muted?: boolean; className?: string }) {
-  return <td className={`whitespace-nowrap px-4 py-3.5 ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
+  return <td className={`overflow-hidden text-ellipsis whitespace-nowrap px-2 py-3 text-xs ${right ? "text-right tabular-nums" : "text-left"} ${strong ? "font-bold" : ""} ${muted ? "text-stone-500" : ""} ${className}`}>{children}</td>;
 }

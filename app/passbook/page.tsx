@@ -150,7 +150,7 @@ export default function PassbookPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1600px]">
+      <div className="w-full">
         <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
