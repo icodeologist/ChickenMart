@@ -286,7 +286,7 @@ export default function PassbookPage() {
                     <tr className="border-t-2 border-emerald-900 bg-emerald-50">
                       <td colSpan={3} className="px-2.5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-emerald-900">Totals</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-amber-700">{formatMoney(data.totalPurchases)}</td>
-                      <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-emerald-700">{formatMoney(data.totalPayments)}</td>
+                      <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-rose-700">{formatMoney(data.totalPayments)}</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-emerald-700">{formatMoney(data.totalHardCash)}</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-emerald-700">{formatMoney(data.totalUpi)}</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-amber-700">{formatMoney(data.totalCredit)}</td>
@@ -333,7 +333,7 @@ export default function PassbookPage() {
                   <p className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-900">Visible totals</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <MobileTotal label="Chicken" value={data.totalPurchases} out />
-                    <MobileTotal label="Payment" value={data.totalPayments} />
+                    <MobileTotal label="Payment" value={data.totalPayments} out />
                     <MobileTotal label="Hard Cash" value={data.totalHardCash} />
                     <MobileTotal label="UPI" value={data.totalUpi} />
                     <MobileTotal label="Credit" value={data.totalCredit} out />
@@ -472,7 +472,7 @@ function entryTypeLabel(entry: PassbookEntry) {
 }
 
 function isMoneyIn(entry: PassbookEntry) {
-  return entry.entryType === "PAYMENT" || entry.entryType === "CUSTOMER_PAYMENT" || entry.manualPaymentType === "HARD_CASH" || entry.manualPaymentType === "UPI";
+  return entry.entryType === "CUSTOMER_PAYMENT" || entry.manualPaymentType === "HARD_CASH" || entry.manualPaymentType === "UPI";
 }
 
 function MobileTotal({ label, value, out = false }: { label: string; value: string; out?: boolean }) {

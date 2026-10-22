@@ -1013,7 +1013,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
   let runningBalance = ZERO;
   const entriesWithBalance = entries.map((entry, sequence) => {
     if (entry.entryType === "PURCHASE") runningBalance = money(runningBalance.minus(entry.debitAmount));
-    else if (entry.entryType === "PAYMENT") runningBalance = money(runningBalance.plus(entry.creditAmount));
+    else if (entry.entryType === "PAYMENT") runningBalance = money(runningBalance.minus(entry.creditAmount));
     else if (entry.entryType === "CUSTOMER_PAYMENT") runningBalance = money(runningBalance.plus(entry.customerPaymentAmount));
     else if (entry.entryType === "CUSTOMER_CREDIT") runningBalance = money(runningBalance);
     else if (entry.manualPaymentType === "CREDIT" || entry.manualPaymentType === "EXPENSE") runningBalance = money(runningBalance.minus(entry.manualAmount));
@@ -1122,7 +1122,7 @@ export async function getAdminOverview() {
           : entry.entryType === "CUSTOMER_PAYMENT" ? entry.customerPaymentAmount
             : entry.manualAmount;
     const direction = entry.entryType === "CUSTOMER_CREDIT" ? "NEUTRAL"
-      : entry.entryType === "PURCHASE" || entry.manualPaymentType === "CREDIT" || entry.manualPaymentType === "EXPENSE" ? "OUT"
+      : entry.entryType === "PURCHASE" || entry.entryType === "PAYMENT" || entry.manualPaymentType === "CREDIT" || entry.manualPaymentType === "EXPENSE" ? "OUT"
         : "IN";
     return {
       id: entry.id,
