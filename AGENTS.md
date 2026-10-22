@@ -10,7 +10,7 @@ Use Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind, shadcn/ui, and
 - Weight is kg to 3 decimal places; money is INR to 2 decimal places; per-kg prices/costs use 4 decimals.
 - `InventoryMovement` is the inventory source of truth. Each opening position, receipt item, sale item, and stock adjustment produces exactly one movement in the same transaction. Receipts/openings are positive, sales are negative, and adjustments are signed.
 - `MoneyMovement` is the cash/bank source of truth. Amounts are positive; direction is determined by `fromAccountId` and `toAccountId`. Never persist a mutable account balance.
-- Supplier payments cannot exceed a payable’s remaining amount; customer collections cannot exceed a credit’s remaining amount. Update status and write the movement atomically.
+- A supplier payment may exceed a payable’s remaining amount: apply only up to the remaining invoice balance and record the excess as supplier advance. The full payment must equal its money movement. Customer collections cannot exceed a credit’s remaining amount. Update status and write all amounts atomically.
 - Expenses, payments, collections, withdrawals, and opening balances each have one money movement. Keep their duplicated amounts equal in the transaction service.
 - Stock counts record expected and actual quantities; adjustment records the difference rather than replacing history.
 - Every posting endpoint and service requires an idempotency key. Reusing a key for the same operation returns the original record; reusing it for another operation fails.

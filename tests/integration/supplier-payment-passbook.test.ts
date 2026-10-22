@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MoneyMovementType } from "@prisma/client";
-import { getPurchasePassbook, postReceipt, postSupplierSettlement } from "@/lib/accounting/engine";
+import { getPurchasePassbook, getRecentChickenReceipts, getSupplierCreditLines, postReceipt, postSupplierSettlement } from "@/lib/accounting/engine";
 import { prisma } from "@/lib/prisma";
 
 const keyPrefix = "supplier-payment-passbook-test";
@@ -49,7 +49,7 @@ describe("supplier payments in the passbook", () => {
     await prisma.$disconnect();
   });
 
-  it("decreases the running balance when money is paid to a supplier", async () => {
+  it("settles the invoice, records excess as advance, and deducts the full payment", async () => {
     const startingBalance = (await getPurchasePassbook()).currentBalance;
     const receipt = await postReceipt({
       idempotencyKey: `${keyPrefix}-receipt`,
@@ -73,7 +73,7 @@ describe("supplier payments in the passbook", () => {
       idempotencyKey: `${keyPrefix}-payment`,
       payableId: payable.id,
       paidAt: new Date("2026-10-22T10:00:00.000Z"),
-      paymentAmount: "200.00",
+      paymentAmount: "1200.00",
       paymentMethod: "CASH",
     });
 
@@ -83,6 +83,22 @@ describe("supplier payments in the passbook", () => {
     });
     expect(savedPayment.moneyMovement.type).toBe(MoneyMovementType.SUPPLIER_PAYMENT);
     expect(savedPayment.moneyMovement.fromAccountId).not.toBeNull();
-    expect((await getPurchasePassbook()).currentBalance.minus(afterPurchase).toFixed(2)).toBe("-200.00");
+    expect(savedPayment.amount.toFixed(2)).toBe("1200.00");
+    expect(savedPayment.appliedAmount.toFixed(2)).toBe("1000.00");
+    expect(savedPayment.advanceAmount.toFixed(2)).toBe("200.00");
+
+    const passbook = await getPurchasePassbook();
+    expect(passbook.currentBalance.minus(afterPurchase).toFixed(2)).toBe("-1200.00");
+    expect(passbook.entries.find((entry) => entry.id === `payment-${payment.id}`)?.description).toContain("200.00 advance");
+    expect((await prisma.supplierPayable.findUniqueOrThrow({ where: { id: payable.id } })).status).toBe("PAID");
+
+    const creditLine = (await getSupplierCreditLines()).find((row) => row.payableId === payable.id);
+    expect(creditLine?.paidAmount.toFixed(2)).toBe("1000.00");
+    expect(creditLine?.remainingAmount.toFixed(2)).toBe("0.00");
+    expect(creditLine?.advanceAmount.toFixed(2)).toBe("200.00");
+
+    const receiptView = (await getRecentChickenReceipts()).find((row) => row.id === receipt.id || row.supplier === supplierName);
+    expect(receiptView?.paidAmount.toFixed(2)).toBe("1000.00");
+    expect(receiptView?.advanceAmount.toFixed(2)).toBe("200.00");
   });
 });

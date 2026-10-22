@@ -21,6 +21,7 @@ type Receipt = {
   averageKgPerBird: string;
   totalAmount: string;
   paidAmount: string;
+  advanceAmount: string;
   remainingAmount: string;
   paymentMethod: string | null;
   status: "OPEN" | "PARTIALLY_PAID" | "PAID";
@@ -107,11 +108,11 @@ export default function CreditLinePage() {
           paymentMethod: settlement.method,
         }),
       });
-      const result = await response.json() as { error?: string };
+      const result = await response.json() as { error?: string; advanceAmount?: string };
       if (!response.ok) throw new Error(result.error || "Could not record payment.");
       await loadRows();
       setSettlement(undefined);
-      setNotice("Payment record updated.");
+      setNotice(result.advanceAmount && hasAmount(result.advanceAmount) ? `Payment recorded. ${money(result.advanceAmount)} saved as supplier advance.` : "Payment record updated.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not record payment.");
     } finally {
@@ -124,6 +125,7 @@ export default function CreditLinePage() {
     () => rows?.filter((row) => row.supplierId === supplierId) ?? [],
     [rows, supplierId],
   );
+  const advancePreview = settlement ? extraPayment(settlement.paymentAmount, settlement.row.remainingAmount) : null;
 
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
@@ -160,7 +162,7 @@ export default function CreditLinePage() {
             </div>
             <div className="overflow-x-auto xl:overflow-visible">
               <table className="w-full min-w-[1080px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
-                <colgroup><col className="w-[8%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[5%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[11%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[8%]"/><col className="w-[15%]"/></colgroup>
+                <colgroup><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[5%]"/><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[7%]"/><col className="w-[13%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
                     <Head>Date</Head>
@@ -171,6 +173,7 @@ export default function CreditLinePage() {
                     <Head right>Average Weight</Head>
                     <Head right>Total Amount</Head>
                     <Head right>Paid</Head>
+                    <Head right>Advance</Head>
                     <Head right>Remaining</Head>
                     <Head>Through</Head>
                     <Head right>Action</Head>
@@ -187,16 +190,17 @@ export default function CreditLinePage() {
                       <Cell right>{row.averageKgPerBird} kg</Cell>
                       <Cell right strong>{money(row.totalAmount)}</Cell>
                       <Cell right className="font-semibold text-emerald-700">{money(row.paidAmount)}</Cell>
+                      <Cell right className={hasAmount(row.advanceAmount) ? "font-bold text-violet-700" : "text-stone-400"}>{hasAmount(row.advanceAmount) ? money(row.advanceAmount) : "—"}</Cell>
                       <Cell right strong className={row.status === "PAID" ? "text-emerald-700" : "text-rose-700"}>{money(row.remainingAmount)}</Cell>
                       <Cell><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-700">{formatMethod(row.paymentMethod)}</span></Cell>
                       <Cell right>
-                        <button type="button" disabled={row.status === "PAID"} onClick={() => startSettlement(row)} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500">
-                          <WalletCards size={14}/>{row.status === "PAID" ? "Paid" : "Record payment"}
+                        <button type="button" onClick={() => startSettlement(row)} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800">
+                          <WalletCards size={14}/>{row.status === "PAID" ? "Add advance" : "Record payment"}
                         </button>
                       </Cell>
                     </tr>
                   )) : (
-                    <tr><td colSpan={11} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
+                    <tr><td colSpan={12} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -211,7 +215,7 @@ export default function CreditLinePage() {
                 <div className="flex items-start justify-between border-b border-stone-200 px-5 py-4">
                   <div>
                     <h2 id="payment-title" className="text-xl font-bold">Record payment</h2>
-                    <p className="mt-1 text-sm text-stone-500">{settlement.row.supplier} · Remaining {money(settlement.row.remainingAmount)}</p>
+                    <p className="mt-1 text-sm text-stone-500">{settlement.row.supplier} · Invoice remaining {money(settlement.row.remainingAmount)}</p>
                   </div>
                   <button type="button" onClick={() => setSettlement(undefined)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Close payment form"><X size={20}/></button>
                 </div>
@@ -225,6 +229,9 @@ export default function CreditLinePage() {
                     </select>
                   </Field>
                   <Field label="Payment amount"><Input required inputMode="decimal" placeholder="0.00" value={settlement.paymentAmount} onChange={(event) => updateSettlement("paymentAmount", event.target.value)}/></Field>
+                  <div className="sm:col-span-2">
+                    {advancePreview ? <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-semibold text-violet-900">{money(advancePreview)} will be recorded as supplier advance.</p> : <p className="text-xs text-stone-500">You may pay more than the invoice balance. Any excess is saved separately as supplier advance.</p>}
+                  </div>
                 </div>
                 <div className="flex justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4">
                   <Button type="button" className="border border-stone-300 bg-white text-stone-700 shadow-none hover:bg-stone-100" onClick={() => setSettlement(undefined)}>Cancel</Button>
@@ -250,6 +257,23 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function formatMethod(method: string | null) {
   if (!method) return "Not paid";
   return method.split(" + ").map((part) => part === "NET_BANKING" ? "Net Banking" : part === "CASH" ? "Cash" : "UPI").join(" + ");
+}
+
+function hasAmount(value: string) {
+  return !/^0(?:\.0+)?$/.test(value);
+}
+
+function extraPayment(payment: string, remaining: string) {
+  const toPaise = (value: string) => {
+    const match = value.trim().match(/^(\d+)(?:\.(\d{0,2}))?$/);
+    if (!match) return null;
+    return BigInt(match[1]) * BigInt(100) + BigInt((match[2] ?? "").padEnd(2, "0"));
+  };
+  const paid = toPaise(payment);
+  const due = toPaise(remaining);
+  if (paid === null || due === null || paid <= due) return null;
+  const extra = paid - due;
+  return `${extra / BigInt(100)}.${String(extra % BigInt(100)).padStart(2, "0")}`;
 }
 
 function Head({ children, right }: { children: ReactNode; right?: boolean }) {

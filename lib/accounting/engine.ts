@@ -234,7 +234,7 @@ async function accountBalance(db: DbClient, accountId: string, asOf: Date) {
 async function payableOutstanding(tx: Prisma.TransactionClient, payableId: string) {
   const payable = await tx.supplierPayable.findUnique({ where: { id: payableId }, include: { payments: true } });
   if (!payable || payable.status === PayableStatus.VOID) throw new AccountingError("Supplier payable is not available.", 404);
-  const paid = sum(payable.payments.map((payment) => payment.amount));
+  const paid = sum(payable.payments.map((payment) => payment.appliedAmount));
   return { payable, paid, remaining: D(payable.originalAmount).minus(paid) };
 }
 
@@ -275,7 +275,7 @@ export async function postReceipt(input: z.input<typeof receiptInput>) {
     const payable = await tx.supplierPayable.create({ data: { stockReceiptId: receipt.id, supplierId: input.supplierId, payableDate: toDateOnly(input.receivedAt), dueDate: input.dueDate ? toDateOnly(input.dueDate) : null, originalAmount: money(total), status: paidAmount.equals(total) ? PayableStatus.PAID : paidAmount.greaterThan(ZERO) ? PayableStatus.PARTIALLY_PAID : PayableStatus.OPEN, notes: input.notes } });
     if (paidAmount.greaterThan(ZERO)) {
       const movement = await tx.moneyMovement.create({ data: { occurredAt: input.receivedAt, amount: paidAmount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: input.paidFromAccountId, reference: payable.id, notes: `Paid against receipt ${receipt.receiptNumber}` } });
-      await tx.supplierPayment.create({ data: { payableId: payable.id, paidAt: input.receivedAt, amount: paidAmount, moneyMovementId: movement.id, notes: "Payment recorded with receipt" } });
+      await tx.supplierPayment.create({ data: { payableId: payable.id, paidAt: input.receivedAt, amount: paidAmount, appliedAmount: paidAmount, advanceAmount: ZERO, moneyMovementId: movement.id, notes: "Payment recorded with receipt" } });
     }
     return receipt;
   });
@@ -448,7 +448,7 @@ export async function settleSupplierPayable(input: SupplierPaymentInput) {
     if (amount.greaterThan(remaining)) throw new AccountingError("Supplier payment exceeds the remaining payable.", 409);
     const movement = await tx.moneyMovement.create({ data: { occurredAt: input.paidAt, amount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: input.accountId, reference: payable.id, notes: input.notes } });
     const account = await tx.account.findUniqueOrThrow({ where: { id: input.accountId } });
-    const payment = await tx.supplierPayment.create({ data: { payableId: payable.id, paidAt: input.paidAt, amount, method: account.type === AccountType.BANK ? "UPI" : "CASH", moneyMovementId: movement.id, notes: input.notes } });
+    const payment = await tx.supplierPayment.create({ data: { payableId: payable.id, paidAt: input.paidAt, amount, appliedAmount: amount, advanceAmount: ZERO, method: account.type === AccountType.BANK ? "UPI" : "CASH", moneyMovementId: movement.id, notes: input.notes } });
     const newPaid = paid.plus(amount);
     await tx.supplierPayable.update({ where: { id: payable.id }, data: { status: newPaid.equals(payable.originalAmount) ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID } });
     return payment;
@@ -460,17 +460,18 @@ export async function postSupplierSettlement(input: SupplierSettlementInput) {
   return runIdempotent("supplier-settlement", input.idempotencyKey, async (tx) => {
     const { payable, paid, remaining } = await payableOutstanding(tx, input.payableId);
     const paymentAmount = money(input.paymentAmount);
-    if (paymentAmount.greaterThan(remaining)) throw new AccountingError("Payment exceeds the remaining amount.", 409);
+    const appliedAmount = money(paymentAmount.lessThan(remaining) ? paymentAmount : remaining);
+    const advanceAmount = money(paymentAmount.minus(appliedAmount));
 
     const account = await requireOrCreatePaymentAccount(tx, input.accountId, input.paymentMethod);
     const movement = await tx.moneyMovement.create({
       data: { occurredAt: input.paidAt, amount: paymentAmount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: account.id, reference: payable.id, notes: input.notes },
     });
     const payment = await tx.supplierPayment.create({
-      data: { payableId: payable.id, paidAt: input.paidAt, amount: paymentAmount, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes },
+      data: { payableId: payable.id, paidAt: input.paidAt, amount: paymentAmount, appliedAmount, advanceAmount, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes },
     });
 
-    const totalSettled = paid.plus(paymentAmount);
+    const totalSettled = paid.plus(appliedAmount);
     await tx.supplierPayable.update({
       where: { id: payable.id },
       data: { status: totalSettled.equals(payable.originalAmount) ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID },
@@ -816,7 +817,11 @@ export async function getRecentChickenReceipts(limit = 25) {
     where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
     orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
     take: limit,
-    include: { supplier: { select: { name: true } }, items: { include: { chickenType: { select: { name: true } } } } },
+    include: {
+      supplier: { select: { name: true } },
+      items: { include: { chickenType: { select: { name: true } } } },
+      payable: { include: { payments: true } },
+    },
   });
   return receipts.flatMap((receipt) => receipt.items.map((item) => {
     const estimate = calculateReceiptEstimate({
@@ -831,7 +836,10 @@ export async function getRecentChickenReceipts(limit = 25) {
     const birds = D(item.birdCount);
     const averageKgPerBird = item.birdCount > 0 ? weight(quantityKg.div(birds)) : ZERO;
     const wastagePerBirdKg = weight(item.wastagePerBirdKg);
-    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: estimate.purchaseRate, totalAmount: estimate.totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg: estimate.wastageKg, meatKg: estimate.meatKg, sellingRate: estimate.sellingRate, salesAmount: estimate.salesAmount, profit: estimate.profit };
+    const paidAmount = money(sum(receipt.payable?.payments.map((payment) => payment.appliedAmount) ?? []));
+    const advanceAmount = money(sum(receipt.payable?.payments.map((payment) => payment.advanceAmount) ?? []));
+    const remainingAmount = money(D(receipt.payable?.originalAmount ?? estimate.totalAmount).minus(paidAmount));
+    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: estimate.purchaseRate, totalAmount: estimate.totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg: estimate.wastageKg, meatKg: estimate.meatKg, sellingRate: estimate.sellingRate, salesAmount: estimate.salesAmount, profit: estimate.profit, paidAmount, remainingAmount, advanceAmount };
   }));
 }
 
@@ -936,7 +944,9 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       supplier: receipt.supplier.name,
       customer: null,
       chickenType: null,
-      description: `Payment to ${receipt.supplier.name}`,
+      description: payment.advanceAmount.greaterThan(ZERO)
+        ? `Payment to ${receipt.supplier.name} · ${money(payment.appliedAmount).toFixed(2)} invoice + ${money(payment.advanceAmount).toFixed(2)} advance`
+        : `Payment to ${receipt.supplier.name}`,
       entryType: "PAYMENT" as const,
       paymentMethod: payment.method,
       manualPaymentType: null,
@@ -1073,7 +1083,7 @@ export async function getAdminOverview() {
     }),
     prisma.supplierPayable.findMany({
       where: { status: { not: PayableStatus.VOID } },
-      include: { supplier: { select: { id: true, name: true } }, payments: { select: { amount: true } } },
+      include: { supplier: { select: { id: true, name: true } }, payments: { select: { appliedAmount: true } } },
     }),
     prisma.stockReceipt.findMany({
       where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
@@ -1105,7 +1115,7 @@ export async function getAdminOverview() {
     mainSuppliers.map((supplier) => [supplier.id, { ...supplier, amount: money(ZERO) }]),
   );
   for (const payable of supplierPayables) {
-    const remaining = money(D(payable.originalAmount).minus(sum(payable.payments.map((payment) => payment.amount))));
+    const remaining = money(D(payable.originalAmount).minus(sum(payable.payments.map((payment) => payment.appliedAmount))));
     if (!remaining.greaterThan(ZERO)) continue;
     const current = supplierMap.get(payable.supplier.id);
     if (current) current.amount = money(current.amount.plus(remaining));
@@ -1172,7 +1182,8 @@ export async function getSupplierCreditLines(limit = 100) {
 
   return receipts.flatMap((receipt) => {
     if (!receipt.payable) return [];
-    const paidAmount = money(sum(receipt.payable.payments.map((payment) => payment.amount)));
+    const paidAmount = money(sum(receipt.payable.payments.map((payment) => payment.appliedAmount)));
+    const advanceAmount = money(sum(receipt.payable.payments.map((payment) => payment.advanceAmount)));
     const remainingAmount = money(D(receipt.payable.originalAmount).minus(paidAmount));
     const paymentMethods = [...new Set(receipt.payable.payments.map((payment) => payment.method))];
     const paymentMethod = paymentMethods.length ? paymentMethods.join(" + ") : null;
@@ -1192,6 +1203,7 @@ export async function getSupplierCreditLines(limit = 100) {
         averageKgPerBird,
         totalAmount: money(receipt.payable!.originalAmount),
         paidAmount,
+        advanceAmount,
         remainingAmount,
         paymentMethod,
         status: receipt.payable!.status,
@@ -1243,13 +1255,13 @@ export async function getMonthlyDetailedReport(year: number, month: number) {
     prisma.stockReceiptItem.findMany({ where: { stockReceipt: { receivedAt: { gte: from, lte: to } } }, include: { chickenType: true } }),
     prisma.dailySaleItem.findMany({ where: { dailySale: { businessDate: { gte: toDateOnly(from), lte: toDateOnly(to) } } }, include: { chickenType: true } }),
     prisma.ownerWithdrawal.findMany({ where: { withdrawnAt: { gte: from, lte: to } }, select: { amount: true } }),
-    prisma.customerCredit.findMany({ include: { collections: { select: { amount: true } } } }), prisma.supplierPayable.findMany({ include: { payments: { select: { amount: true } } } }),
+    prisma.customerCredit.findMany({ include: { collections: { select: { amount: true } } } }), prisma.supplierPayable.findMany({ include: { payments: { select: { appliedAmount: true } } } }),
     prisma.expense.groupBy({ by: ["category"], where: { expenseDate: { gte: toDateOnly(from), lte: toDateOnly(to) } }, _sum: { amount: true } }),
     prisma.accountReconciliation.findMany({ where: { reconciledAt: { lte: to } }, orderBy: { reconciledAt: "desc" }, include: { account: true } }),
   ]);
   const grouped = <T extends { chickenType: { name: string }; quantityKg: Prisma.Decimal; lineAmount: Prisma.Decimal }>(items: T[]) => Object.values(items.reduce<Record<string, { name: string; quantityKg: Prisma.Decimal; amount: Prisma.Decimal }>>((acc, item) => { const row = acc[item.chickenType.name] ?? { name: item.chickenType.name, quantityKg: ZERO, amount: ZERO }; row.quantityKg = row.quantityKg.plus(item.quantityKg); row.amount = row.amount.plus(item.lineAmount); acc[item.chickenType.name] = row; return acc; }, {}));
   const creditOutstanding = money(sum(credits.map((x) => D(x.originalAmount).minus(sum(x.collections.map((c) => c.amount))))));
-  const payableOutstanding = money(sum(payables.map((x) => D(x.originalAmount).minus(sum(x.payments.map((p) => p.amount))))));
+  const payableOutstanding = money(sum(payables.map((x) => D(x.originalAmount).minus(sum(x.payments.map((p) => p.appliedAmount))))));
   return { ...base, purchases: money(sum(purchaseItems.map((x) => x.lineAmount))), purchasesByChicken: grouped(purchaseItems), salesByChicken: grouped(saleItems), expensesByCategory: expenses.map((x) => ({ category: x.category, amount: money(x._sum.amount ?? ZERO) })), withdrawals: money(sum(withdrawals.map((x) => x.amount))), creditOutstanding, payableOutstanding, latestActual: reconciliations.reduce<Record<string, unknown>>((acc, r) => { if (!acc[r.accountId]) acc[r.accountId] = { accountId: r.accountId, name: r.account.name, actualBalance: r.actualBalance, expectedBalance: r.expectedBalance, difference: r.difference, reconciledAt: r.reconciledAt }; return acc; }, {}) };
 }
 

@@ -404,6 +404,8 @@ model SupplierPayment {
   payableId       String                @db.Uuid
   paidAt          DateTime              @db.Timestamptz(6)
   amount          Decimal               @db.Decimal(16, 2)
+  appliedAmount   Decimal               @default(0) @db.Decimal(16, 2)
+  advanceAmount   Decimal               @default(0) @db.Decimal(16, 2)
   method          SupplierPaymentMethod @default(CASH)
   moneyMovementId String                @unique @db.Uuid
   notes           String?               @db.Text
