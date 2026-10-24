@@ -1,19 +1,20 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { createSupplier } from "@/lib/accounting/engine";
+import { createSupplier, deleteSupplier, editSupplier } from "@/lib/accounting/engine";
 import { prisma } from "@/lib/prisma";
 
 const supplierName = "Integration Supplier";
+const editedSupplierName = "Integration Supplier Edited";
 const keyPrefix = "supplier-integration-test";
 
 describe("supplier creation", () => {
   beforeEach(async () => {
     await prisma.idempotencyKey.deleteMany({ where: { key: { startsWith: keyPrefix } } });
-    await prisma.supplier.deleteMany({ where: { name: { equals: supplierName, mode: "insensitive" } } });
+    await prisma.supplier.deleteMany({ where: { name: { in: [supplierName, editedSupplierName] } } });
   });
 
   afterAll(async () => {
     await prisma.idempotencyKey.deleteMany({ where: { key: { startsWith: keyPrefix } } });
-    await prisma.supplier.deleteMany({ where: { name: { equals: supplierName, mode: "insensitive" } } });
+    await prisma.supplier.deleteMany({ where: { name: { in: [supplierName, editedSupplierName] } } });
     await prisma.$disconnect();
   });
 
@@ -37,5 +38,20 @@ describe("supplier creation", () => {
       idempotencyKey: `${keyPrefix}-different-request`,
       name: supplierName.toLowerCase(),
     })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("edits and deletes an unused supplier idempotently", async () => {
+    const supplier = await createSupplier({ idempotencyKey: `${keyPrefix}-manage-create`, name: supplierName });
+    const edited = await editSupplier({ idempotencyKey: `${keyPrefix}-edit`, supplierId: supplier.id, name: editedSupplierName });
+    const editRetry = await editSupplier({ idempotencyKey: `${keyPrefix}-edit`, supplierId: supplier.id, name: editedSupplierName });
+    expect(edited.name).toBe(editedSupplierName);
+    expect(editRetry.id).toBe(supplier.id);
+    expect(editRetry.duplicate).toBe(true);
+
+    const deleted = await deleteSupplier({ idempotencyKey: `${keyPrefix}-delete`, supplierId: supplier.id });
+    const deleteRetry = await deleteSupplier({ idempotencyKey: `${keyPrefix}-delete`, supplierId: supplier.id });
+    expect(deleted.id).toBe(supplier.id);
+    expect(deleteRetry.id).toBe(supplier.id);
+    expect(await prisma.supplier.findUnique({ where: { id: supplier.id } })).toBeNull();
   });
 });

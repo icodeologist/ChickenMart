@@ -29,6 +29,8 @@ import {
   reconciliationInput,
   stockCountInput,
   supplierInput,
+  supplierEditInput,
+  supplierDeleteInput,
   supplierPaymentInput,
   supplierSettlementInput,
   transferInput,
@@ -50,6 +52,8 @@ import type {
   StockCountInput,
   SupplierPaymentInput,
   SupplierInput,
+  SupplierEditInput,
+  SupplierDeleteInput,
   SupplierSettlementInput,
   TransferInput,
   WastageInput,
@@ -299,10 +303,6 @@ async function reverseReceipt(
   if (item.inventoryMovement.reversedBy || item.stockReceipt.payable?.status === PayableStatus.VOID) {
     throw new AccountingError("Chicken entry has already been changed or deleted.", 409);
   }
-  if (item.stockReceipt.payable?.payments.length) {
-    throw new AccountingError("This chicken entry has a supplier settlement and cannot be changed here.", 409);
-  }
-
   const adjustment = await tx.stockAdjustment.create({
     data: {
       chickenTypeId: item.chickenTypeId,
@@ -325,6 +325,12 @@ async function reverseReceipt(
     },
   });
   if (item.stockReceipt.payable) {
+    for (const payment of item.stockReceipt.payable.payments) {
+      await tx.supplierPayment.update({
+        where: { id: payment.id },
+        data: { appliedAmount: ZERO, advanceAmount: payment.amount },
+      });
+    }
     await tx.supplierPayable.update({ where: { id: item.stockReceipt.payable.id }, data: { status: PayableStatus.VOID } });
   }
   return item;
@@ -508,6 +514,43 @@ export async function createSupplier(input: SupplierInput) {
     }
     throw error;
   }
+}
+
+export async function editSupplier(input: SupplierEditInput) {
+  input = supplierEditInput.parse(input);
+  try {
+    const result = await runIdempotent("supplier-edit", input.idempotencyKey, async (tx) => {
+      const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+      if (!supplier || !supplier.isActive) throw new AccountingError("Supplier was not found.", 404);
+      const duplicate = await tx.supplier.findFirst({
+        where: { id: { not: input.supplierId }, name: { equals: input.name, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (duplicate) throw new AccountingError("A supplier with this name already exists.", 409);
+      return tx.supplier.update({ where: { id: input.supplierId }, data: { name: input.name } });
+    });
+    const supplier = await prisma.supplier.findUnique({ where: { id: result.id }, select: { id: true, name: true } });
+    if (!supplier) throw new AccountingError("Supplier was not found after editing.", 500);
+    return { ...supplier, duplicate: result.duplicate };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AccountingError("A supplier with this name already exists.", 409);
+    throw error;
+  }
+}
+
+export async function deleteSupplier(input: SupplierDeleteInput) {
+  input = supplierDeleteInput.parse(input);
+  return runIdempotent("supplier-delete", input.idempotencyKey, async (tx) => {
+    const supplier = await tx.supplier.findUnique({
+      where: { id: input.supplierId },
+      include: { _count: { select: { stockReceipts: true, payables: true } } },
+    });
+    if (!supplier) throw new AccountingError("Supplier was not found.", 404);
+    if (supplier._count.stockReceipts || supplier._count.payables) {
+      throw new AccountingError("This supplier is used by chicken entries. Delete those entries first, or rename the supplier.", 409);
+    }
+    return tx.supplier.delete({ where: { id: supplier.id } });
+  });
 }
 
 export async function createChickenType(input: ChickenTypeInput) {
@@ -900,7 +943,6 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
   const sort: PassbookSort = ["OLDEST", "HIGHEST"].includes(input.sort ?? "") ? input.sort as PassbookSort : "RECENT";
   const [receipts, manualEntries, creditSales] = await Promise.all([
     prisma.stockReceipt.findMany({
-      where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
       include: {
         supplier: { select: { name: true } },
         items: {
@@ -920,7 +962,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
   ]);
 
   const supplierEntries = receipts.flatMap((receipt) => [
-    ...receipt.items.map((item) => ({
+    ...(receipt.payable?.status === PayableStatus.VOID ? [] : receipt.items.map((item) => ({
       id: `purchase-${item.id}`,
       occurredAt: receipt.receivedAt,
       recordedAt: receipt.createdAt,
@@ -936,7 +978,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       customerPaymentAmount: ZERO,
       debitAmount: money(item.lineAmount),
       creditAmount: ZERO,
-    })),
+    }))),
     ...(receipt.payable?.payments ?? []).map((payment) => ({
       id: `payment-${payment.id}`,
       occurredAt: payment.paidAt,

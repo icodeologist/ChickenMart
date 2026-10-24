@@ -105,6 +105,14 @@ export const supplierInput = z.object({
   notes: trimmed.max(2000).optional(),
 });
 
+export const supplierEditInput = z.object({
+  idempotencyKey,
+  supplierId: uuid,
+  name: trimmed.min(1).max(140),
+});
+
+export const supplierDeleteInput = z.object({ idempotencyKey, supplierId: uuid });
+
 export const chickenTypeInput = z.object({
   idempotencyKey,
   code: trimmed.min(1).max(32).regex(/^[A-Za-z0-9_-]+$/),
@@ -206,6 +214,8 @@ export type ExpenseInput = z.infer<typeof expenseInput>;
 export type SupplierPaymentInput = z.infer<typeof supplierPaymentInput>;
 export type SupplierSettlementInput = z.infer<typeof supplierSettlementInput>;
 export type SupplierInput = z.infer<typeof supplierInput>;
+export type SupplierEditInput = z.infer<typeof supplierEditInput>;
+export type SupplierDeleteInput = z.infer<typeof supplierDeleteInput>;
 export type ChickenTypeInput = z.infer<typeof chickenTypeInput>;
 export type ManualPassbookEntryInput = z.infer<typeof manualPassbookEntryInput>;
 export type CreditCustomerInput = z.infer<typeof creditCustomerInput>;

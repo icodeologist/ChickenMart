@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MoneyMovementType } from "@prisma/client";
-import { getPurchasePassbook, getRecentChickenReceipts, getSupplierCreditLines, postReceipt, postSupplierSettlement } from "@/lib/accounting/engine";
+import { deleteReceipt, getPurchasePassbook, getRecentChickenReceipts, getSupplierCreditLines, postReceipt, postSupplierSettlement } from "@/lib/accounting/engine";
 import { prisma } from "@/lib/prisma";
 
 const keyPrefix = "supplier-payment-passbook-test";
@@ -16,6 +16,11 @@ async function cleanup() {
   if (receipt) {
     const itemIds = receipt.items.map((item) => item.id);
     const movementIds = receipt.payable?.payments.map((payment) => payment.moneyMovementId) ?? [];
+    const receiptMovements = await prisma.inventoryMovement.findMany({ where: { stockReceiptItemId: { in: itemIds } }, select: { id: true } });
+    const reversalIds = receiptMovements.map((movement) => movement.id);
+    const reversals = await prisma.inventoryMovement.findMany({ where: { reversalOfId: { in: reversalIds } }, select: { id: true, stockAdjustmentId: true } });
+    await prisma.inventoryMovement.deleteMany({ where: { id: { in: reversals.map((movement) => movement.id) } } });
+    await prisma.stockAdjustment.deleteMany({ where: { id: { in: reversals.flatMap((movement) => movement.stockAdjustmentId ? [movement.stockAdjustmentId] : []) } } });
     await prisma.inventoryMovement.deleteMany({ where: { stockReceiptItemId: { in: itemIds } } });
     if (receipt.payable) {
       await prisma.supplierPayment.deleteMany({ where: { payableId: receipt.payable.id } });
@@ -100,5 +105,17 @@ describe("supplier payments in the passbook", () => {
     const receiptView = (await getRecentChickenReceipts()).find((row) => row.id === receipt.id || row.supplier === supplierName);
     expect(receiptView?.paidAmount.toFixed(2)).toBe("1000.00");
     expect(receiptView?.advanceAmount.toFixed(2)).toBe("200.00");
+
+    const receiptItem = await prisma.stockReceiptItem.findFirstOrThrow({ where: { stockReceiptId: receipt.id } });
+    await deleteReceipt({ idempotencyKey: `${keyPrefix}-delete`, itemId: receiptItem.id });
+
+    expect((await getRecentChickenReceipts()).some((row) => row.id === receiptItem.id)).toBe(false);
+    const convertedPayment = await prisma.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } });
+    expect(convertedPayment.appliedAmount.toFixed(2)).toBe("0.00");
+    expect(convertedPayment.advanceAmount.toFixed(2)).toBe("1200.00");
+    const afterDelete = await getPurchasePassbook();
+    expect(afterDelete.currentBalance.minus(startingBalance).toFixed(2)).toBe("-1200.00");
+    expect(afterDelete.entries.some((entry) => entry.id === `purchase-${receiptItem.id}`)).toBe(false);
+    expect(afterDelete.entries.some((entry) => entry.id === `payment-${payment.id}`)).toBe(true);
   });
 });

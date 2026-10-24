@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ export default function DailyEntryClient() {
   const [addingSupplier, setAddingSupplier] = useState(false);
   const [supplierName, setSupplierName] = useState("");
   const [supplierSaving, setSupplierSaving] = useState(false);
+  const [editingSupplierId, setEditingSupplierId] = useState("");
   const [addingChickenType, setAddingChickenType] = useState(false);
   const [chickenTypeCode, setChickenTypeCode] = useState("");
   const [chickenTypeSaving, setChickenTypeSaving] = useState(false);
@@ -102,6 +103,69 @@ export default function DailyEntryClient() {
       setNotice(`${supplier.name} added and selected.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not add supplier.");
+    } finally {
+      setSupplierSaving(false);
+    }
+  }
+
+  function startSupplierEdit() {
+    const supplier = data?.suppliers.find((item) => item.id === supplierId);
+    if (!supplier) return;
+    setAddingSupplier(false);
+    setEditingSupplierId(supplier.id);
+    setSupplierName(supplier.name);
+    setError("");
+  }
+
+  async function editSelectedSupplier() {
+    const name = supplierName.trim();
+    if (!editingSupplierId || !name) {
+      setError("Enter the supplier name.");
+      return;
+    }
+    setSupplierSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/accounting/suppliers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: `supplier-edit-${crypto.randomUUID()}`, supplierId: editingSupplierId, name }),
+      });
+      const result = await response.json() as Supplier & { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not edit supplier.");
+      setData((current) => current ? { ...current, suppliers: current.suppliers.map((item) => item.id === result.id ? { id: result.id, name: result.name } : item).sort((left, right) => left.name.localeCompare(right.name)) } : current);
+      setEditingSupplierId("");
+      setSupplierName("");
+      setNotice("Supplier updated.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not edit supplier.");
+    } finally {
+      setSupplierSaving(false);
+    }
+  }
+
+  async function removeSelectedSupplier() {
+    const supplier = data?.suppliers.find((item) => item.id === supplierId);
+    if (!supplier || !window.confirm(`Delete supplier ${supplier.name}?`)) return;
+    setSupplierSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/accounting/suppliers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: `supplier-delete-${crypto.randomUUID()}`, supplierId: supplier.id }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not delete supplier.");
+      setData((current) => current ? { ...current, suppliers: current.suppliers.filter((item) => item.id !== supplier.id) } : current);
+      setSupplierId("");
+      setEditingSupplierId("");
+      setSupplierName("");
+      setNotice(`${supplier.name} deleted.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not delete supplier.");
     } finally {
       setSupplierSaving(false);
     }
@@ -202,22 +266,26 @@ export default function DailyEntryClient() {
                   <label htmlFor="supplier" className="text-xs font-bold uppercase tracking-wide text-emerald-800">Supplier</label>
                   <button
                     type="button"
-                    onClick={() => { setAddingSupplier((current) => !current); setError(""); }}
+                    onClick={() => { setAddingSupplier((current) => !current); setEditingSupplierId(""); setSupplierName(""); setError(""); }}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-950"
                   >
                     <Plus size={15} /> New supplier
                   </button>
                 </div>
-                <select
-                  id="supplier"
-                  required
-                  value={supplierId}
-                  onChange={(event) => setSupplierId(event.target.value)}
-                  className={`${select} border-emerald-300 text-base`}
-                >
-                  <option value="">Choose supplier</option>
-                  {data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                </select>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                  <select
+                    id="supplier"
+                    required
+                    value={supplierId}
+                    onChange={(event) => { setSupplierId(event.target.value); setEditingSupplierId(""); setSupplierName(""); }}
+                    className={`${select} border-emerald-300 text-base`}
+                  >
+                    <option value="">Choose supplier</option>
+                    {data.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                  </select>
+                  <button type="button" title="Edit supplier" aria-label="Edit supplier" disabled={!supplierId || supplierSaving} onClick={startSupplierEdit} className="inline-flex size-10 items-center justify-center rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"><Pencil size={17}/></button>
+                  <button type="button" title="Delete supplier" aria-label="Delete supplier" disabled={!supplierId || supplierSaving} onClick={() => void removeSelectedSupplier()} className="inline-flex size-10 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={17}/></button>
+                </div>
 
                 {addingSupplier && (
                   <div className="grid gap-2 rounded-lg border border-emerald-200 bg-white p-3 sm:grid-cols-[1fr_auto_auto]">
@@ -246,6 +314,14 @@ export default function DailyEntryClient() {
                     >
                       Cancel
                     </button>
+                  </div>
+                )}
+
+                {editingSupplierId && (
+                  <div className="grid gap-2 rounded-lg border border-emerald-200 bg-white p-3 sm:grid-cols-[1fr_auto_auto]">
+                    <Input autoFocus maxLength={140} value={supplierName} onChange={(event) => setSupplierName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void editSelectedSupplier(); } }}/>
+                    <Button type="button" disabled={supplierSaving} onClick={() => void editSelectedSupplier()}>{supplierSaving && <Loader2 className="mr-2 animate-spin" size={16}/>}Save</Button>
+                    <button type="button" title="Cancel edit" aria-label="Cancel edit" disabled={supplierSaving} onClick={() => { setEditingSupplierId(""); setSupplierName(""); }} className="inline-flex size-10 items-center justify-center rounded-lg text-stone-600 hover:bg-stone-100 disabled:opacity-50"><X size={18}/></button>
                   </div>
                 )}
               </div>
