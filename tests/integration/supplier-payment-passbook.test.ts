@@ -5,15 +5,16 @@ import { prisma } from "@/lib/prisma";
 
 const keyPrefix = "supplier-payment-passbook-test";
 const receiptNumber = "SUPPLIER-PAYMENT-PASSBOOK-TEST";
+const multiPaymentReceiptNumber = "SUPPLIER-MULTI-PAYMENT-DELETE-TEST";
 const supplierName = "Supplier Payment Passbook Test";
 const chickenCode = "SUPPLIER_PAYMENT_TEST";
 
 async function cleanup() {
-  const receipt = await prisma.stockReceipt.findUnique({
-    where: { receiptNumber },
+  const receipts = await prisma.stockReceipt.findMany({
+    where: { receiptNumber: { in: [receiptNumber, multiPaymentReceiptNumber] } },
     include: { items: true, payable: { include: { payments: true } } },
   });
-  if (receipt) {
+  for (const receipt of receipts) {
     const itemIds = receipt.items.map((item) => item.id);
     const movementIds = receipt.payable?.payments.map((payment) => payment.moneyMovementId) ?? [];
     const receiptMovements = await prisma.inventoryMovement.findMany({ where: { stockReceiptItemId: { in: itemIds } }, select: { id: true } });
@@ -117,5 +118,43 @@ describe("supplier payments in the passbook", () => {
     expect(afterDelete.currentBalance.minus(startingBalance).toFixed(2)).toBe("-1200.00");
     expect(afterDelete.entries.some((entry) => entry.id === `purchase-${receiptItem.id}`)).toBe(false);
     expect(afterDelete.entries.some((entry) => entry.id === `payment-${payment.id}`)).toBe(true);
+  });
+
+  it("deletes a receipt with several supplier payments and preserves every payment as advance", async () => {
+    const receipt = await postReceipt({
+      idempotencyKey: `${keyPrefix}-multi-receipt`,
+      receiptNumber: multiPaymentReceiptNumber,
+      supplierId,
+      receivedAt: new Date("2026-10-23T09:00:00.000Z"),
+      paidAmount: "0",
+      items: [{
+        chickenTypeId,
+        quantityKg: "100.000",
+        birdCount: 50,
+        unitCost: "100.0000",
+        suggestedSellRate: "150.0000",
+      }],
+    });
+    const payable = await prisma.supplierPayable.findUniqueOrThrow({ where: { stockReceiptId: receipt.id } });
+
+    for (const [index, amount] of ["2000.00", "3000.00", "4000.00", "1500.00", "500.00"].entries()) {
+      await postSupplierSettlement({
+        idempotencyKey: `${keyPrefix}-multi-payment-${index}`,
+        payableId: payable.id,
+        paidAt: new Date(`2026-10-23T1${index}:00:00.000Z`),
+        paymentAmount: amount,
+        paymentMethod: "CASH",
+      });
+    }
+
+    const receiptItem = await prisma.stockReceiptItem.findFirstOrThrow({ where: { stockReceiptId: receipt.id } });
+    await deleteReceipt({ idempotencyKey: `${keyPrefix}-multi-delete`, itemId: receiptItem.id });
+
+    const payments = await prisma.supplierPayment.findMany({ where: { payableId: payable.id } });
+    expect(payments).toHaveLength(5);
+    expect(payments.every((payment) => payment.appliedAmount.isZero())).toBe(true);
+    expect(payments.every((payment) => payment.advanceAmount.equals(payment.amount))).toBe(true);
+    expect((await prisma.supplierPayable.findUniqueOrThrow({ where: { id: payable.id } })).status).toBe("VOID");
+    expect((await getRecentChickenReceipts()).some((row) => row.id === receiptItem.id)).toBe(false);
   });
 });

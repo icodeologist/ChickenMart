@@ -146,7 +146,15 @@ async function runIdempotent(
       const result = await work(tx);
       await tx.idempotencyKey.create({ data: { key, operation, result: { id: result.id } } });
       return { ...result, duplicate: false };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      // Vercel and the production database can be in different regions. Posting
+      // workflows deliberately perform several invariant checks in one atomic
+      // transaction, so Prisma's 5 second interactive-transaction default is
+      // too short for valid receipts with multiple supplier payments.
+      maxWait: 10_000,
+      timeout: 30_000,
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const previous = await prisma.idempotencyKey.findUnique({ where: { key } });
