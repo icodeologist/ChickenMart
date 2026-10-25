@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateReceiptEstimate } from "@/lib/accounting/engine";
+import { calculateReceiptEstimate, calculateThirtyDayMeatAverage } from "@/lib/accounting/engine";
 
 describe("receipt profit estimate", () => {
   it("cross-checks purchase, wastage, meat, sales and profit", () => {
@@ -29,5 +29,12 @@ describe("receipt profit estimate", () => {
       sellingRate: "150.0000",
       storedTotalAmount: "999.00",
     })).toThrow("Stored purchase total does not match");
+  });
+
+  it("divides the last 30 days of estimated meat by exactly 30", () => {
+    const result = calculateThirtyDayMeatAverage(["84.000", "36.000"]);
+
+    expect(result.totalMeat.toFixed(3)).toBe("120.000");
+    expect(result.averageMeatPerDay.toFixed(3)).toBe("4.000");
   });
 });

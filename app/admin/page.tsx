@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Loader2, RefreshCw } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Drumstick, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -25,6 +25,10 @@ type Overview = {
   estimatedPurchaseCost: string;
   estimatedSales: string;
   estimatedProfit: string;
+  meatLast30Days: string;
+  averageMeatPerDay: string;
+  meatWindowStart: string;
+  meatWindowEnd: string;
   suppliersPendingCount: number;
   customersOwing: BalanceRow[];
   suppliersOwed: BalanceRow[];
@@ -39,6 +43,10 @@ function formatMoney(value: string) {
   return `${negative ? "-" : ""}₹${grouped}.${decimalPart.padEnd(2, "0").slice(0, 2)}`;
 }
 
+function formatKg(value: string) {
+  return `${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 }).format(Number(value))} kg`;
+}
+
 async function fetchOverview() {
   const response = await fetch("/api/accounting/admin-overview", { cache: "no-store" });
   const result = await response.json() as Overview & { error?: string };
@@ -49,6 +57,7 @@ async function fetchOverview() {
 export default function AdminPage() {
   const [data, setData] = useState<Overview>();
   const [error, setError] = useState("");
+  const [showMeatEstimate, setShowMeatEstimate] = useState(false);
 
   const load = useCallback(async () => {
     setData(await fetchOverview());
@@ -62,9 +71,12 @@ export default function AdminPage() {
 
   return <main className="min-h-screen bg-[#f7f5f1] px-4 py-6 text-stone-900 sm:px-6 lg:py-8">
     <div className="w-full">
-      <header className="mb-6 flex items-end justify-between gap-4">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div><p className="text-sm font-bold uppercase tracking-[.16em] text-emerald-700">ChickenMart - Avin</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Admin overview</h1><p className="mt-1 text-sm text-stone-500">What the shop has, owes, and needs to collect.</p></div>
-        <button type="button" onClick={() => { setError(""); setData(undefined); void load().catch((reason: Error) => setError(reason.message)); }} className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><RefreshCw size={16}/>Refresh</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setShowMeatEstimate((current) => !current)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800"><Drumstick size={17}/>{showMeatEstimate ? "Hide meat average" : "Meat per day"}</button>
+          <button type="button" onClick={() => { setError(""); setData(undefined); void load().catch((reason: Error) => setError(reason.message)); }} className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><RefreshCw size={16}/>Refresh</button>
+        </div>
       </header>
 
       {error ? <Card className="border-rose-200 bg-rose-50 p-6"><p className="font-bold text-rose-900">Could not load the overview</p><p className="mt-1 text-sm text-rose-700">{error}</p><Button className="mt-4" onClick={() => { setData(undefined); void load().catch((reason: Error) => setError(reason.message)); }}>Try again</Button></Card>
@@ -76,6 +88,18 @@ export default function AdminPage() {
               <Position label="Customers owe us" value={data.customerOutstanding} note={`${data.customersOwing.length} customer${data.customersOwing.length === 1 ? "" : "s"} with balance`} tone="customer" href="/credit-page"/>
               <Position label="We owe suppliers" value={data.supplierOutstanding} note={`${data.suppliersPendingCount} supplier${data.suppliersPendingCount === 1 ? "" : "s"} with payment pending`} tone="supplier" href="/credit-line"/>
             </section>
+
+            {showMeatEstimate && <Card className="mt-5 border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div><p className="text-xs font-bold uppercase tracking-[.12em] text-emerald-700">Rough 30-day estimate</p><h2 className="mt-1 text-xl font-bold text-emerald-950">Average meat per day</h2></div>
+                <button type="button" onClick={() => setShowMeatEstimate(false)} aria-label="Close meat estimate" className="rounded-lg p-1.5 text-emerald-800 hover:bg-emerald-100"><X size={18}/></button>
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div><p className="text-sm font-semibold text-emerald-800">Daily average</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-emerald-950">{formatKg(data.averageMeatPerDay)}<span className="ml-1 text-base font-semibold text-emerald-700">/ day</span></p></div>
+                <div><p className="text-sm font-semibold text-emerald-800">Total estimated meat</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-emerald-950">{formatKg(data.meatLast30Days)}</p></div>
+              </div>
+              <p className="mt-4 border-t border-emerald-200 pt-3 text-xs leading-5 text-emerald-800">Estimated from active chicken purchases between {new Date(data.meatWindowStart).toLocaleDateString("en-IN")} and {new Date(data.meatWindowEnd).toLocaleDateString("en-IN")}. Total estimated meat ÷ 30 days. This is a rough estimate, not recorded daily sales.</p>
+            </Card>}
 
             <section className="mt-5 grid gap-5 lg:grid-cols-2">
               <DueList title="Customer credit to collect" rows={data.customersOwing} empty="No customer credit is outstanding." href="/credit-page" kind="customer"/>

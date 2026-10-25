@@ -88,6 +88,11 @@ export function calculateReceiptEstimate(input: {
   return { quantityKg, purchaseRate, sellingRate, totalAmount, wastageKg, meatKg, salesAmount, profit };
 }
 
+export function calculateThirtyDayMeatAverage(meatAmounts: Prisma.Decimal.Value[]) {
+  const totalMeat = weight(sum(meatAmounts));
+  return { totalMeat, averageMeatPerDay: weight(totalMeat.div(30)) };
+}
+
 function toDateOnly(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
@@ -1111,6 +1116,8 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
 }
 
 export async function getAdminOverview() {
+  const meatWindowEnd = new Date();
+  const meatWindowStart = new Date(meatWindowEnd.getTime() - 30 * 24 * 60 * 60 * 1_000);
   const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers] = await Promise.all([
     getPurchasePassbook({ sort: "RECENT" }),
     prisma.creditSale.findMany({
@@ -1123,19 +1130,25 @@ export async function getAdminOverview() {
     }),
     prisma.stockReceipt.findMany({
       where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
-      select: { items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
+      select: { receivedAt: true, items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
     }),
     prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
-  const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => calculateReceiptEstimate({
-    quantityKg: item.quantityKg,
-    birdCount: item.birdCount,
-    wastagePerBirdKg: item.wastagePerBirdKg,
-    purchaseRate: item.unitCost,
-    sellingRate: item.suggestedSellRate,
-    storedTotalAmount: item.lineAmount,
+  const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => ({
+    receivedAt: receipt.receivedAt,
+    estimate: calculateReceiptEstimate({
+      quantityKg: item.quantityKg,
+      birdCount: item.birdCount,
+      wastagePerBirdKg: item.wastagePerBirdKg,
+      purchaseRate: item.unitCost,
+      sellingRate: item.suggestedSellRate,
+      storedTotalAmount: item.lineAmount,
+    }),
   })));
+  const meatEstimate = calculateThirtyDayMeatAverage(receiptEstimates
+    .filter((row) => row.receivedAt >= meatWindowStart && row.receivedAt <= meatWindowEnd)
+    .map((row) => row.estimate.meatKg));
 
   const customerMap = new Map<string, { id: string; name: string; phone: string | null; amount: Prisma.Decimal }>();
   for (const sale of creditSales) {
@@ -1187,9 +1200,13 @@ export async function getAdminOverview() {
     moneyAvailable: passbook.currentBalance,
     customerOutstanding: passbook.customerOutstanding,
     supplierOutstanding: money(sum(suppliersOwed.map((supplier) => supplier.amount))),
-    estimatedPurchaseCost: money(sum(receiptEstimates.map((estimate) => estimate.totalAmount))),
-    estimatedSales: money(sum(receiptEstimates.map((estimate) => estimate.salesAmount))),
-    estimatedProfit: money(sum(receiptEstimates.map((estimate) => estimate.profit))),
+    estimatedPurchaseCost: money(sum(receiptEstimates.map((row) => row.estimate.totalAmount))),
+    estimatedSales: money(sum(receiptEstimates.map((row) => row.estimate.salesAmount))),
+    estimatedProfit: money(sum(receiptEstimates.map((row) => row.estimate.profit))),
+    meatLast30Days: meatEstimate.totalMeat,
+    averageMeatPerDay: meatEstimate.averageMeatPerDay,
+    meatWindowStart,
+    meatWindowEnd,
     suppliersPendingCount,
     customersOwing,
     suppliersOwed,
