@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CreditStatus, InventoryMovementKind, MoneyMovementType, StockAdjustmentReason } from "@prisma/client";
+import { CreditStatus, MoneyMovementType } from "@prisma/client";
 import { getAdminOverview, getPurchasePassbook, postCustomerCreditPayment, postCustomerCreditSale } from "@/lib/accounting/engine";
 import { prisma } from "@/lib/prisma";
 
 const key = "customer-credit-unpaid-integration-test";
 let customerId = "";
 let chickenTypeId = "";
-let adjustmentId = "";
 let cashAccountId = "";
 
 describe("customer credit sales", () => {
@@ -31,27 +30,6 @@ describe("customer credit sales", () => {
     });
     cashAccountId = cashAccount.id;
 
-    const adjustment = await prisma.stockAdjustment.create({
-      data: {
-        chickenTypeId,
-        occurredAt: new Date("2026-10-19T09:00:00.000Z"),
-        quantityKg: "10.000",
-        unitCost: "100.0000",
-        reason: StockAdjustmentReason.CORRECTION,
-        notes: "Integration test opening stock",
-      },
-    });
-    adjustmentId = adjustment.id;
-    await prisma.inventoryMovement.create({
-      data: {
-        chickenTypeId,
-        occurredAt: adjustment.occurredAt,
-        quantityKg: adjustment.quantityKg,
-        unitCost: adjustment.unitCost,
-        kind: InventoryMovementKind.STOCK_ADJUSTMENT,
-        stockAdjustmentId: adjustment.id,
-      },
-    });
   });
 
   afterAll(async () => {
@@ -64,14 +42,12 @@ describe("customer credit sales", () => {
     await prisma.creditSaleItem.deleteMany({ where: { creditSaleId: { in: sales.map((sale) => sale.id) } } });
     await prisma.creditSale.deleteMany({ where: { id: { in: sales.map((sale) => sale.id) } } });
     await prisma.idempotencyKey.deleteMany({ where: { key: { startsWith: key } } });
-    await prisma.inventoryMovement.deleteMany({ where: { stockAdjustmentId: adjustmentId } });
-    await prisma.stockAdjustment.deleteMany({ where: { id: adjustmentId } });
     await prisma.customer.deleteMany({ where: { id: customerId } });
     await prisma.chickenType.deleteMany({ where: { id: chickenTypeId } });
     await prisma.$disconnect();
   });
 
-  it("records an unpaid sale with inventory outflow and no money inflow", async () => {
+  it("records an unpaid sale without requiring or changing inventory", async () => {
     const balanceBefore = (await getPurchasePassbook()).currentBalance;
     const outstandingBefore = (await getPurchasePassbook()).customerOutstanding;
     const result = await postCustomerCreditSale({
@@ -87,12 +63,12 @@ describe("customer credit sales", () => {
 
     const sale = await prisma.creditSale.findUniqueOrThrow({
       where: { id: result.id },
-      include: { items: { include: { inventoryMovement: true } }, payments: true },
+      include: { items: true, payments: true },
     });
     expect(sale.status).toBe(CreditStatus.OPEN);
     expect(sale.totalAmount.toFixed(2)).toBe("200.00");
     expect(sale.payments).toHaveLength(0);
-    expect(sale.items[0]?.inventoryMovement?.quantityKg.toFixed(3)).toBe("-1.000");
+    expect(await prisma.inventoryMovement.count({ where: { creditSaleItemId: { in: sale.items.map((item) => item.id) } } })).toBe(0);
     expect(await prisma.moneyMovement.count({ where: { reference: sale.id, type: MoneyMovementType.SALE_RECEIPT } })).toBe(0);
 
     const afterCredit = await getPurchasePassbook();

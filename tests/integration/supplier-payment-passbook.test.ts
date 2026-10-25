@@ -72,6 +72,8 @@ describe("supplier payments in the passbook", () => {
       }],
     });
     const payable = await prisma.supplierPayable.findUniqueOrThrow({ where: { stockReceiptId: receipt.id } });
+    const postedItem = await prisma.stockReceiptItem.findFirstOrThrow({ where: { stockReceiptId: receipt.id } });
+    expect(await prisma.inventoryMovement.count({ where: { stockReceiptItemId: postedItem.id } })).toBe(0);
     const afterPurchase = (await getPurchasePassbook()).currentBalance;
     expect(afterPurchase.minus(startingBalance).toFixed(2)).toBe("-1000.00");
 

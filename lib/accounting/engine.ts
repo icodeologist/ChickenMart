@@ -277,11 +277,8 @@ export async function postReceipt(input: z.input<typeof receiptInput>) {
       data: { receiptNumber: input.receiptNumber, supplierId: input.supplierId, receivedAt: input.receivedAt, supplierInvoice: input.supplierInvoice, notes: input.notes },
     });
     for (const line of input.items) {
-      const item = await tx.stockReceiptItem.create({
+      await tx.stockReceiptItem.create({
         data: { stockReceiptId: receipt.id, chickenTypeId: line.chickenTypeId, quantityKg: weight(line.quantityKg), birdCount: line.birdCount ?? 0, wastagePerBirdKg: weight(wastageRateByType.get(line.chickenTypeId) ?? D("0.600")), unitCost: rate(line.unitCost), suggestedSellRate: rate(line.suggestedSellRate ?? "0"), lineAmount: exactLineAmount(line.quantityKg, line.unitCost) },
-      });
-      await tx.inventoryMovement.create({
-        data: { chickenTypeId: line.chickenTypeId, occurredAt: input.receivedAt, quantityKg: weight(line.quantityKg), unitCost: rate(line.unitCost), kind: InventoryMovementKind.RECEIPT, stockReceiptItemId: item.id },
       });
     }
     const payable = await tx.supplierPayable.create({ data: { stockReceiptId: receipt.id, supplierId: input.supplierId, payableDate: toDateOnly(input.receivedAt), dueDate: input.dueDate ? toDateOnly(input.dueDate) : null, originalAmount: money(total), status: paidAmount.equals(total) ? PayableStatus.PAID : paidAmount.greaterThan(ZERO) ? PayableStatus.PARTIALLY_PAID : PayableStatus.OPEN, notes: input.notes } });
@@ -307,31 +304,32 @@ async function reverseReceipt(
   });
   if (!item) throw new AccountingError("Chicken entry was not found.", 404);
   if (item.stockReceipt.items.length !== 1) throw new AccountingError("This receipt contains multiple chicken entries and cannot be changed here.", 409);
-  if (!item.inventoryMovement) throw new AccountingError("Chicken entry has no inventory movement.", 409);
-  if (item.inventoryMovement.reversedBy || item.stockReceipt.payable?.status === PayableStatus.VOID) {
+  if (item.inventoryMovement?.reversedBy || item.stockReceipt.payable?.status === PayableStatus.VOID) {
     throw new AccountingError("Chicken entry has already been changed or deleted.", 409);
   }
-  const adjustment = await tx.stockAdjustment.create({
-    data: {
-      chickenTypeId: item.chickenTypeId,
-      occurredAt: item.stockReceipt.receivedAt,
-      quantityKg: weight(D(item.quantityKg).negated()),
-      unitCost: rate(item.unitCost),
-      reason: StockAdjustmentReason.CORRECTION,
-      notes: reason,
-    },
-  });
-  await tx.inventoryMovement.create({
-    data: {
-      chickenTypeId: item.chickenTypeId,
-      occurredAt: item.stockReceipt.receivedAt,
-      quantityKg: weight(D(item.quantityKg).negated()),
-      unitCost: rate(item.unitCost),
-      kind: InventoryMovementKind.STOCK_ADJUSTMENT,
-      stockAdjustmentId: adjustment.id,
-      reversalOfId: item.inventoryMovement.id,
-    },
-  });
+  if (item.inventoryMovement) {
+    const adjustment = await tx.stockAdjustment.create({
+      data: {
+        chickenTypeId: item.chickenTypeId,
+        occurredAt: item.stockReceipt.receivedAt,
+        quantityKg: weight(D(item.quantityKg).negated()),
+        unitCost: rate(item.unitCost),
+        reason: StockAdjustmentReason.CORRECTION,
+        notes: reason,
+      },
+    });
+    await tx.inventoryMovement.create({
+      data: {
+        chickenTypeId: item.chickenTypeId,
+        occurredAt: item.stockReceipt.receivedAt,
+        quantityKg: weight(D(item.quantityKg).negated()),
+        unitCost: rate(item.unitCost),
+        kind: InventoryMovementKind.STOCK_ADJUSTMENT,
+        stockAdjustmentId: adjustment.id,
+        reversalOfId: item.inventoryMovement.id,
+      },
+    });
+  }
   if (item.stockReceipt.payable) {
     for (const payment of item.stockReceipt.payable.payments) {
       await tx.supplierPayment.update({
@@ -374,13 +372,9 @@ export async function editReceipt(input: z.input<typeof receiptEditInput>) {
         lineAmount,
       },
     });
-    await tx.inventoryMovement.create({
-      data: { chickenTypeId: input.chickenTypeId, occurredAt: input.receivedAt, quantityKg: weight(input.quantityKg), unitCost: rate(input.unitCost), kind: InventoryMovementKind.RECEIPT, stockReceiptItemId: item.id },
-    });
     await tx.supplierPayable.create({
       data: { stockReceiptId: receipt.id, supplierId: input.supplierId, payableDate: toDateOnly(input.receivedAt), originalAmount: money(lineAmount), status: PayableStatus.OPEN, notes: `Replacement for receipt ${original.stockReceipt.receiptNumber}` },
     });
-    await inventoryStates(tx, new Date("9999-12-31T23:59:59.999Z"));
     return item;
   });
 }
@@ -389,7 +383,6 @@ export async function deleteReceipt(input: z.input<typeof receiptDeleteInput>) {
   input = receiptDeleteInput.parse(input);
   return runIdempotent("receipt-delete", input.idempotencyKey, async (tx) => {
     const original = await reverseReceipt(tx, input.itemId, `Deleted chicken entry ${input.itemId}`);
-    await inventoryStates(tx, new Date("9999-12-31T23:59:59.999Z"));
     return { id: original.id };
   });
 }
@@ -613,9 +606,6 @@ export async function postCustomerCreditSale(input: CustomerCreditSaleInput) {
     if (paymentMethod === "CREDIT" && paidAmount.greaterThan(ZERO)) throw new AccountingError("A credit sale cannot include a payment.", 409);
     if (paymentMethod !== "CREDIT" && paidAmount.greaterThan(ZERO)) await requirePaymentAccount(tx, input.accountId!, paymentMethod);
 
-    const state = await inventoryAt(tx, input.chickenTypeId, input.soldAt);
-    if (state.quantityKg.lessThan(quantityKg)) throw new AccountingError("Sale would make inventory negative.", 409);
-
     const sale = await tx.creditSale.create({
       data: {
         customerId: input.customerId,
@@ -624,11 +614,8 @@ export async function postCustomerCreditSale(input: CustomerCreditSaleInput) {
         status: paidAmount.equals(totalAmount) ? CreditStatus.COLLECTED : paidAmount.greaterThan(ZERO) ? CreditStatus.PARTIALLY_COLLECTED : CreditStatus.OPEN,
       },
     });
-    const item = await tx.creditSaleItem.create({
+    await tx.creditSaleItem.create({
       data: { creditSaleId: sale.id, chickenTypeId: input.chickenTypeId, quantityKg, unitPrice: rate(input.unitPrice), lineAmount: totalAmount },
-    });
-    await tx.inventoryMovement.create({
-      data: { chickenTypeId: input.chickenTypeId, occurredAt: input.soldAt, quantityKg: quantityKg.negated(), unitCost: averageCost(state), kind: InventoryMovementKind.SALE, creditSaleItemId: item.id },
     });
 
     if (paidAmount.greaterThan(ZERO) && paymentMethod !== "CREDIT") {
@@ -852,15 +839,14 @@ export async function getMonthlyReport(year: number, month: number) {
 
 export async function getDailyEntryContext(date: Date) {
   const dayEnd = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
-  const [chickenTypes, suppliers, customers, accounts, closingInventory] = await Promise.all([
+  const [chickenTypes, suppliers, customers, accounts] = await Promise.all([
     prisma.chickenType.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, code: true, name: true } }),
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.customer.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.account.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, type: true } }),
-    getInventoryReport(dayEnd),
   ]);
   const expectedBalances = await Promise.all(accounts.map(async (account) => ({ accountId: account.id, expectedBalance: await accountBalance(prisma, account.id, dayEnd) })));
-  return { date: toDateOnly(date), chickenTypes: chickenTypes.map((type) => { const wastagePerBirdKg = wastageRateForChicken(type.code).toFixed(3); return { ...type, name: `${type.name} — ${wastagePerBirdKg} kg waste/bird`, wastagePerBirdKg }; }), suppliers, customers, accounts, closingInventory, expectedBalances };
+  return { date: toDateOnly(date), chickenTypes: chickenTypes.map((type) => { const wastagePerBirdKg = wastageRateForChicken(type.code).toFixed(3); return { ...type, name: `${type.name} — ${wastagePerBirdKg} kg waste/bird`, wastagePerBirdKg }; }), suppliers, customers, accounts, expectedBalances };
 }
 
 export async function getRecentChickenReceipts(limit = 25) {

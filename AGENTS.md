@@ -16,7 +16,8 @@ Use Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind, shadcn/ui, Zod
 
 - Never use JavaScript floating point for weights, prices, totals, balances, or profit. Use Prisma `Decimal`/PostgreSQL `numeric` and validate string input with Zod.
 - Weight is kg to 3 decimal places; money is INR to 2 decimal places; per-kg prices/costs use 4 decimals.
-- `InventoryMovement` is the inventory source of truth. Each opening position, receipt item, sale item, and stock adjustment produces exactly one movement in the same transaction. Receipts/openings are positive, sales are negative, and adjustments are signed.
+- Customer credit sales are billing records, not inventory records. They must never require available stock or create inventory movements. Quantity and price calculate the customer bill only.
+- New chicken purchases and customer credit sales do not create inventory movements. Legacy inventory rows remain readable for migration safety, but inventory must not block the active purchase, edit, customer-credit, payment, or passbook workflows.
 - `MoneyMovement` is the cash/bank source of truth. Amounts are positive; direction is determined by `fromAccountId` and `toAccountId`. Never persist a mutable account balance.
 - A supplier payment may exceed a payable’s remaining amount: apply only up to the remaining invoice balance and record the excess as supplier advance. The full payment must equal its money movement. Customer collections cannot exceed a credit’s remaining amount. Update status and write all amounts atomically.
 - Expenses, payments, collections, withdrawals, and opening balances each have one money movement. Keep their duplicated amounts equal in the transaction service.
