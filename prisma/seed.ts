@@ -14,14 +14,18 @@ async function main() {
         { code: "BROILER", name: "Broiler" },
         { code: "TYSON", name: "Tyson" },
         { code: "LINE_CHICKEN", name: "Layer Chicken" },
-      ].map((data) => tx.chickenType.create({ data })),
+      ].map((data) => tx.chickenType.upsert({
+        where: { code: data.code },
+        update: { name: data.name, isActive: true },
+        create: data,
+      })),
     );
     const setup = await tx.shopSetup.create({
       data: { shopName: "Demo Chicken Shop", openingDate: new Date("2026-01-01T00:00:00.000Z") },
     });
     const [cash, bank] = await Promise.all([
-      tx.account.create({ data: { name: "Shop Cash", type: "CASH" } }),
-      tx.account.create({ data: { name: "Shop Bank", type: "BANK" } }),
+      tx.account.upsert({ where: { name: "Shop Cash" }, update: { type: "CASH", isActive: true }, create: { name: "Shop Cash", type: "CASH" } }),
+      tx.account.upsert({ where: { name: "Shop Bank" }, update: { type: "BANK", isActive: true }, create: { name: "Shop Bank", type: "BANK" } }),
     ]);
     const openedAt = new Date("2026-01-01T09:00:00.000Z");
     for (const [account, amount] of [[cash, "25000.00"], [bank, "50000.00"]] as const) {
@@ -45,8 +49,16 @@ async function main() {
       });
     }
     await Promise.all([
-      tx.supplier.create({ data: { name: "Demo Poultry Supplier", phone: "9876543210" } }),
-      tx.customer.create({ data: { name: "Demo Credit Customer", phone: "9123456780" } }),
+      tx.supplier.upsert({
+        where: { name: "Demo Poultry Supplier" },
+        update: { phone: "9876543210", isActive: true },
+        create: { name: "Demo Poultry Supplier", phone: "9876543210" },
+      }),
+      tx.customer.upsert({
+        where: { name: "Demo Credit Customer" },
+        update: { phone: "9123456780", isActive: true },
+        create: { name: "Demo Credit Customer", phone: "9123456780" },
+      }),
     ]);
   });
   console.info("Demo shop setup, accounts, and opening inventory created.");

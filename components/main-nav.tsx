@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, ClipboardList, CreditCard, LayoutDashboard, PlusCircle, Swords, Users } from "lucide-react";
+import { BookOpen, ClipboardList, CreditCard, LayoutDashboard, LogOut, PlusCircle, Swords, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 function RawChickenLegIcon() {
@@ -32,6 +32,7 @@ const links = [
 
 export function MainNav() {
   const pathname = usePathname();
+  if (pathname === "/login") return null;
 
   return (
     <nav className="sticky top-0 z-30 border-b border-stone-200 bg-[#fdfcf9]/95 backdrop-blur print:hidden">
@@ -70,6 +71,12 @@ export function MainNav() {
               </Link>
             );
           })}
+          <form action="/api/auth/logout" method="post" className="shrink-0">
+            <button type="submit" aria-label="Sign out" title="Sign out" className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-stone-500 transition-colors hover:bg-rose-50 hover:text-rose-700">
+              <LogOut size={17} />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          </form>
         </div>
       </div>
     </nav>

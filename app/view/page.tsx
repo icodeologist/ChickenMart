@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Loader2, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -136,28 +136,6 @@ export default function ReceivedChickenView() {
     }
   }
 
-  async function remove(row: Receipt) {
-    if (!window.confirm(`Delete the ${row.chickenType} entry from ${row.supplier}?`)) return;
-    setBusyId(row.id);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch("/api/accounting/receipts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idempotencyKey: `receipt-delete-${crypto.randomUUID()}`, itemId: row.id }),
-      });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error || "Could not delete chicken.");
-      await loadRows();
-      setNotice("Chicken entry deleted.");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not delete chicken.");
-    } finally {
-      setBusyId("");
-    }
-  }
-
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
       <div className="w-full">
@@ -227,7 +205,6 @@ export default function ReceivedChickenView() {
                       <Cell right>
                         <div className="flex justify-end gap-1">
                           <button type="button" title="Edit entry" aria-label="Edit entry" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex size-6 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={12}/></button>
-                          <button type="button" title="Delete entry" aria-label="Delete entry" onClick={() => void remove(row)} disabled={Boolean(busyId)} className="inline-flex size-6 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busyId === row.id ? <Loader2 className="animate-spin" size={12}/> : <Trash2 size={12}/>}</button>
                         </div>
                       </Cell>
                     </tr>
@@ -241,7 +218,7 @@ export default function ReceivedChickenView() {
               {rows.length ? rows.map((row) => <article key={row.id} className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="max-w-full truncate rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800" title={row.supplier}>{row.supplier}</span><time className="text-xs font-semibold text-stone-500">{new Date(row.receivedAt).toLocaleDateString("en-IN")}</time></div><h3 className="mt-2 font-bold text-stone-900">{row.chickenType}</h3></div><div className="shrink-0 text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Profit</p><p className={`mt-1 text-lg font-extrabold tabular-nums ${Number(row.profit) >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{money(row.profit)}</p></div></div>
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-stone-50 p-4 sm:grid-cols-3 lg:grid-cols-5"><Detail label="Birds" value={String(row.birdCount)}/><Detail label="Total weight" value={`${row.quantityKg} kg`}/><Detail label="Average" value={`${row.averageKgPerBird} kg`}/><Detail label="Wastage" value={`${row.wastageKg} kg`} warn/><Detail label="Meat" value={`${row.meatKg} kg`}/><Detail label="Buy/kg" value={money(row.purchaseRate)}/><Detail label="Sell/kg" value={money(row.sellingRate)} good/><Detail label="Purchase total" value={money(row.totalAmount)}/><Detail label="Paid" value={money(row.paidAmount)} good/><Detail label={hasAmount(row.advanceAmount) ? "Supplier advance" : "Remaining"} value={money(hasAmount(row.advanceAmount) ? row.advanceAmount : row.remainingAmount)} good={hasAmount(row.advanceAmount)} warn={!hasAmount(row.advanceAmount) && hasAmount(row.remainingAmount)}/><Detail label="Expected sales" value={money(row.salesAmount)} good/></div>
-                <div className="mt-3 flex gap-2"><button type="button" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white text-xs font-bold text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={14}/>Edit</button><button type="button" onClick={() => void remove(row)} disabled={Boolean(busyId)} className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busyId === row.id ? <Loader2 className="animate-spin" size={14}/> : <Trash2 size={14}/>}Delete</button></div>
+                <div className="mt-3"><button type="button" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white text-xs font-bold text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={14}/>Edit</button></div>
               </article>) : <p className="p-12 text-center text-stone-500">No chicken added yet.</p>}
             </div>
           </Card>
