@@ -26,6 +26,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test
       DIRECT_URL: postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test
+      AUTH_SECRET: ci-only-auth-secret-with-more-than-32-characters
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,4 +51,3 @@ jobs:
         run: npm run typecheck
       - name: Production build
         run: npm run build
-

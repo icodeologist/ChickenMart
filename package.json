@@ -13,6 +13,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "admin:create": "tsx scripts/create-admin.ts",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run tests/unit",
     "test:integration": "DATABASE_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} DIRECT_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} prisma migrate deploy && DATABASE_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} DIRECT_URL=${TEST_DATABASE_URL:-postgresql://chikken:chikken@localhost:5433/chikken_mart?schema=accounting_test} vitest run tests/integration --no-file-parallelism"
@@ -21,6 +22,7 @@
     "@prisma/client": "6.19.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jose": "^6.2.13",
     "lucide-react": "^0.468.0",
     "next": "16.4.2",
     "react": "19.3.0",

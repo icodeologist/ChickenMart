@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,7 +21,7 @@ export default function LoginPage() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not sign in.");
@@ -42,16 +43,27 @@ export default function LoginPage() {
         <div className="mt-5 text-center">
           <p className="text-sm font-black uppercase tracking-[.18em] text-emerald-700">Chicken Mart</p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight">Admin access</h1>
-          <p className="mt-1 text-sm text-stone-500">Enter the shop password to continue.</p>
+          <p className="mt-1 text-sm text-stone-500">Sign in with the private admin account.</p>
         </div>
 
         <form onSubmit={login} className="mt-7 grid gap-4">
+          <label className="grid gap-1.5 text-xs font-bold uppercase tracking-wide text-stone-600">
+            Username
+            <Input
+              required
+              autoFocus
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="Admin username"
+            />
+          </label>
           <label className="grid gap-1.5 text-xs font-bold uppercase tracking-wide text-stone-600">
             Password
             <div className="relative">
               <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={17} />
               <Input
-                autoFocus
                 required
                 type="password"
                 autoComplete="current-password"

@@ -2,7 +2,15 @@
 
 ## Stack and commands
 
-Use Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind, shadcn/ui, and Zod. It is single-admin, with no authentication or payment integrations. Start PostgreSQL with `docker compose up -d`; copy `.env.example` to `.env`; then use `npm run db:migrate`, `npm run db:seed`, `npm run typecheck`, `npm run test`, and `npm run build`. Integration tests use the isolated `accounting_test` schema, never `public`.
+Use Next.js App Router, TypeScript, PostgreSQL, Prisma, Tailwind, shadcn/ui, Zod, and database-backed single-admin authentication. There are no payment integrations. Start PostgreSQL with `docker compose up -d`; copy `.env.example` to `.env`; then use `npm run db:migrate`, `npm run db:seed`, `npm run admin:create`, `npm run typecheck`, `npm run test`, and `npm run build`. Integration tests use the isolated `accounting_test` schema, never `public`.
+
+## Authentication invariants
+
+- There is exactly one `AdminUser`. It is created or password-rotated only through `npm run admin:create`; never add public registration.
+- Store only a salted scrypt password hash. Never store, log, seed, or commit the admin password.
+- Sessions are short-lived HS256 JWTs in `HttpOnly`, `SameSite=Strict` cookies. `AUTH_SECRET` must contain at least 32 random characters and must only exist server-side.
+- Protect every application page in `proxy.ts` and independently validate the admin row and `sessionVersion` in every business API. Incrementing `sessionVersion` revokes all existing sessions.
+- For remote admin creation, use the direct PostgreSQL connection in `ADMIN_DATABASE_URL` and confirm the displayed hostname before changing credentials.
 
 ## Financial invariants
 

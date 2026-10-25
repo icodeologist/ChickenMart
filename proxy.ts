@@ -8,9 +8,6 @@ export async function proxy(request: NextRequest) {
   const authenticated = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
 
   if (publicPaths.has(pathname)) {
-    if (pathname === "/login" && authenticated) {
-      return NextResponse.redirect(new URL("/admin", request.url));
-    }
     return NextResponse.next();
   }
 
