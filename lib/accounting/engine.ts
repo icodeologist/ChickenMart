@@ -70,6 +70,7 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
 type IdempotentResult = { id: string; duplicate: boolean };
 type InventoryState = { quantityKg: Prisma.Decimal; value: Prisma.Decimal };
 type InventoryEffect = { quantityKg: Prisma.Decimal; valueDelta: Prisma.Decimal; issuedCost?: Prisma.Decimal; kind: InventoryMovementKind; occurredAt: Date; spoilage: boolean };
+const BIRD_COUNTER_CHICKEN_CODES = ["BROILER", "TYSON"];
 
 export function calculateReceiptEstimate(input: {
   quantityKg: Prisma.Decimal.Value;
@@ -617,7 +618,9 @@ export async function postBirdCountAdjustment(input: BirdCountAdjustmentInput) {
   input = birdCountAdjustmentInput.parse(input);
   return runIdempotent("bird-count-adjustment", input.idempotencyKey, async (tx) => {
     const chickenType = await tx.chickenType.findUnique({ where: { id: input.chickenTypeId } });
-    if (!chickenType || !chickenType.isActive) throw new AccountingError("Chicken type is not active.", 404);
+    if (!chickenType || !chickenType.isActive || !BIRD_COUNTER_CHICKEN_CODES.includes(chickenType.code)) {
+      throw new AccountingError("Bird counter supports Broiler and Tyson only.", 400);
+    }
     const currentCount = await birdCountForType(tx, input.chickenTypeId);
     if (input.direction === "REMOVE" && input.quantity > currentCount) {
       throw new AccountingError(`Only ${currentCount} ${chickenType.name} birds are available.`, 409);
@@ -636,13 +639,24 @@ export async function postBirdCountAdjustment(input: BirdCountAdjustmentInput) {
 
 export async function getBirdCounter() {
   const [chickenTypes, receiptItems, adjustments, recentAdjustments] = await Promise.all([
-    prisma.chickenType.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, isActive: true } }),
+    prisma.chickenType.findMany({
+      where: { code: { in: BIRD_COUNTER_CHICKEN_CODES } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, isActive: true },
+    }),
     prisma.stockReceiptItem.findMany({
-      where: { stockReceipt: { payable: { is: { status: { not: PayableStatus.VOID } } } } },
+      where: {
+        chickenType: { code: { in: BIRD_COUNTER_CHICKEN_CODES } },
+        stockReceipt: { payable: { is: { status: { not: PayableStatus.VOID } } } },
+      },
       select: { chickenTypeId: true, birdCount: true },
     }),
-    prisma.birdCountAdjustment.findMany({ select: { chickenTypeId: true, direction: true, quantity: true } }),
     prisma.birdCountAdjustment.findMany({
+      where: { chickenType: { code: { in: BIRD_COUNTER_CHICKEN_CODES } } },
+      select: { chickenTypeId: true, direction: true, quantity: true },
+    }),
+    prisma.birdCountAdjustment.findMany({
+      where: { chickenType: { code: { in: BIRD_COUNTER_CHICKEN_CODES } } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 5,
       include: { chickenType: { select: { name: true } } },
