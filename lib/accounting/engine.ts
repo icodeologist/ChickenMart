@@ -1599,6 +1599,14 @@ export async function getSupplierPaymentHistory() {
   }));
 }
 
+export async function getCreditLineSuppliers() {
+  return prisma.supplier.findMany({
+    where: { isActive: true, name: { in: ["KSP", "NPF"] } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function getPassbook(input: { accountId?: string; from?: Date; to?: Date; query?: string; type?: string }) {
   const to = input.to ?? new Date();
   const from = input.from ?? new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));

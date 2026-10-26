@@ -79,25 +79,23 @@ export default function CreditLinePage() {
 
   useEffect(() => {
     let active = true;
-    const today = new Date().toISOString().slice(0, 10);
-
     void Promise.all([
       fetch("/api/accounting/supplier-credit-lines").then(async (response) => {
         if (!response.ok) throw new Error("Could not load credit entries.");
         return response.json() as Promise<Receipt[]>;
       }),
-      fetch(`/api/accounting/daily-entry-context?date=${today}`).then(async (response) => {
+      fetch("/api/accounting/credit-line-suppliers").then(async (response) => {
         if (!response.ok) throw new Error("Could not load suppliers.");
-        return response.json() as Promise<{ suppliers: Supplier[] }>;
+        return response.json() as Promise<Supplier[]>;
       }),
       fetch("/api/accounting/supplier-payment-history").then(async (response) => {
-        if (!response.ok) throw new Error("Could not load supplier payments.");
+        if (!response.ok) return [] as PaymentHistory[];
         return response.json() as Promise<PaymentHistory[]>;
       }),
-    ]).then(([loadedRows, context, loadedPayments]) => {
+    ]).then(([loadedRows, loadedSuppliers, loadedPayments]) => {
       if (!active) return;
       const creditSupplierMap = new Map<string, Supplier>();
-      for (const supplier of context.suppliers) {
+      for (const supplier of loadedSuppliers) {
         if (["KSP", "NPF"].includes(supplier.name.trim().toUpperCase())) creditSupplierMap.set(supplier.id, supplier);
       }
       for (const row of loadedRows) {
