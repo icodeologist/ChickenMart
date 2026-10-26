@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { AccountingError } from "@/lib/accounting/errors";
 import { D, exactLineAmount, money, rate, sum, weight, ZERO } from "@/lib/accounting/decimal";
 import {
+  birdCountAdjustmentInput,
   creditCustomerInput,
   chickenTypeInput,
   customerCreditPaymentInput,
@@ -39,6 +40,7 @@ import {
   wastageInput,
 } from "@/lib/accounting/schemas";
 import type {
+  BirdCountAdjustmentInput,
   CreditCustomerInput,
   ChickenTypeInput,
   CustomerCreditPaymentInput,
@@ -589,6 +591,84 @@ export async function createChickenType(input: ChickenTypeInput) {
     }
     throw error;
   }
+}
+
+async function birdCountForType(db: DbClient, chickenTypeId: string) {
+  const [receiptBirds, adjustments] = await Promise.all([
+    db.stockReceiptItem.aggregate({
+      where: {
+        chickenTypeId,
+        stockReceipt: { payable: { is: { status: { not: PayableStatus.VOID } } } },
+      },
+      _sum: { birdCount: true },
+    }),
+    db.birdCountAdjustment.findMany({
+      where: { chickenTypeId },
+      select: { direction: true, quantity: true },
+    }),
+  ]);
+  return (receiptBirds._sum.birdCount ?? 0) + adjustments.reduce(
+    (total, adjustment) => total + (adjustment.direction === "ADD" ? adjustment.quantity : -adjustment.quantity),
+    0,
+  );
+}
+
+export async function postBirdCountAdjustment(input: BirdCountAdjustmentInput) {
+  input = birdCountAdjustmentInput.parse(input);
+  return runIdempotent("bird-count-adjustment", input.idempotencyKey, async (tx) => {
+    const chickenType = await tx.chickenType.findUnique({ where: { id: input.chickenTypeId } });
+    if (!chickenType || !chickenType.isActive) throw new AccountingError("Chicken type is not active.", 404);
+    const currentCount = await birdCountForType(tx, input.chickenTypeId);
+    if (input.direction === "REMOVE" && input.quantity > currentCount) {
+      throw new AccountingError(`Only ${currentCount} ${chickenType.name} birds are available.`, 409);
+    }
+    return tx.birdCountAdjustment.create({
+      data: {
+        chickenTypeId: input.chickenTypeId,
+        occurredAt: input.occurredAt,
+        direction: input.direction,
+        quantity: input.quantity,
+        notes: input.notes,
+      },
+    });
+  });
+}
+
+export async function getBirdCounter() {
+  const [chickenTypes, receiptItems, adjustments, recentAdjustments] = await Promise.all([
+    prisma.chickenType.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, isActive: true } }),
+    prisma.stockReceiptItem.findMany({
+      where: { stockReceipt: { payable: { is: { status: { not: PayableStatus.VOID } } } } },
+      select: { chickenTypeId: true, birdCount: true },
+    }),
+    prisma.birdCountAdjustment.findMany({ select: { chickenTypeId: true, direction: true, quantity: true } }),
+    prisma.birdCountAdjustment.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 5,
+      include: { chickenType: { select: { name: true } } },
+    }),
+  ]);
+  const counts = new Map(chickenTypes.map((type) => [type.id, 0]));
+  for (const item of receiptItems) counts.set(item.chickenTypeId, (counts.get(item.chickenTypeId) ?? 0) + item.birdCount);
+  for (const adjustment of adjustments) {
+    counts.set(
+      adjustment.chickenTypeId,
+      (counts.get(adjustment.chickenTypeId) ?? 0) + (adjustment.direction === "ADD" ? adjustment.quantity : -adjustment.quantity),
+    );
+  }
+  const byType = chickenTypes.map((type) => ({ ...type, count: counts.get(type.id) ?? 0 }));
+  return {
+    totalBirds: byType.reduce((total, type) => total + type.count, 0),
+    byType,
+    recentAdjustments: recentAdjustments.map((adjustment) => ({
+      id: adjustment.id,
+      chickenTypeName: adjustment.chickenType.name,
+      occurredAt: adjustment.occurredAt,
+      direction: adjustment.direction,
+      quantity: adjustment.quantity,
+      notes: adjustment.notes,
+    })),
+  };
 }
 
 export async function createCreditCustomer(input: CreditCustomerInput) {
@@ -1304,7 +1384,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
 export async function getAdminOverview() {
   const meatWindowEnd = new Date();
   const meatWindowStart = new Date(meatWindowEnd.getTime() - 30 * 24 * 60 * 60 * 1_000);
-  const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers, customerCreditEntries] = await Promise.all([
+  const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers, customerCreditEntries, birdCounter] = await Promise.all([
     getPurchasePassbook({ sort: "RECENT", pageSize: 8 }),
     prisma.creditSale.findMany({
       where: { status: { not: CreditStatus.WRITTEN_OFF } },
@@ -1320,6 +1400,7 @@ export async function getAdminOverview() {
     }),
     prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.customerCreditEntry.findMany({ include: { payments: { select: { amount: true } } } }),
+    getBirdCounter(),
   ]);
 
   const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => ({
@@ -1406,6 +1487,7 @@ export async function getAdminOverview() {
     customersOwing,
     suppliersOwed,
     recentActivity,
+    birdCounter,
   };
 }
 

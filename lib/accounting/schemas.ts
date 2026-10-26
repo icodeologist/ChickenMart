@@ -119,6 +119,15 @@ export const chickenTypeInput = z.object({
   name: trimmed.min(1).max(80),
 });
 
+export const birdCountAdjustmentInput = z.object({
+  idempotencyKey,
+  chickenTypeId: uuid,
+  occurredAt: dateTime,
+  direction: z.enum(["ADD", "REMOVE"]),
+  quantity: z.coerce.number().int().positive().max(1_000_000),
+  notes: trimmed.max(200).optional(),
+});
+
 export const manualPassbookEntryInput = z.object({
   idempotencyKey,
   entryDate: dateTime,
@@ -234,6 +243,7 @@ export type SupplierInput = z.infer<typeof supplierInput>;
 export type SupplierEditInput = z.infer<typeof supplierEditInput>;
 export type SupplierDeleteInput = z.infer<typeof supplierDeleteInput>;
 export type ChickenTypeInput = z.infer<typeof chickenTypeInput>;
+export type BirdCountAdjustmentInput = z.infer<typeof birdCountAdjustmentInput>;
 export type ManualPassbookEntryInput = z.infer<typeof manualPassbookEntryInput>;
 export type CustomerCreditEntryInput = z.infer<typeof customerCreditEntryInput>;
 export type CustomerCreditEntryPaymentInput = z.infer<typeof customerCreditEntryPaymentInput>;

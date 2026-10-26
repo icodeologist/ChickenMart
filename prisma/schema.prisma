@@ -74,6 +74,11 @@ enum PassbookPaymentType {
   EXPENSE
 }
 
+enum BirdCountAdjustmentDirection {
+  ADD
+  REMOVE
+}
+
 model ShopSetup {
   id                        String                     @id @default(uuid()) @db.Uuid
   openingDate               DateTime                   @unique @db.Date
@@ -97,18 +102,19 @@ model AdminUser {
 }
 
 model ChickenType {
-  id                 String                     @id @default(uuid()) @db.Uuid
-  code               String                     @unique @db.VarChar(32)
-  name               String                     @unique @db.VarChar(80)
-  isActive           Boolean                    @default(true)
-  createdAt          DateTime                   @default(now()) @db.Timestamptz(6)
-  receiptItems       StockReceiptItem[]
-  saleItems          DailySaleItem[]
-  stockCountLines    StockCountLine[]
-  stockAdjustments   StockAdjustment[]
-  inventoryMovements InventoryMovement[]
-  openingPositions   OpeningInventoryPosition[]
-  creditSaleItems    CreditSaleItem[]
+  id                   String                     @id @default(uuid()) @db.Uuid
+  code                 String                     @unique @db.VarChar(32)
+  name                 String                     @unique @db.VarChar(80)
+  isActive             Boolean                    @default(true)
+  createdAt            DateTime                   @default(now()) @db.Timestamptz(6)
+  receiptItems         StockReceiptItem[]
+  saleItems            DailySaleItem[]
+  stockCountLines      StockCountLine[]
+  stockAdjustments     StockAdjustment[]
+  inventoryMovements   InventoryMovement[]
+  openingPositions     OpeningInventoryPosition[]
+  creditSaleItems      CreditSaleItem[]
+  birdCountAdjustments BirdCountAdjustment[]
 }
 
 model ExpenseCategory {
@@ -286,6 +292,20 @@ model StockReceiptItem {
 
   @@unique([stockReceiptId, chickenTypeId])
   @@index([chickenTypeId])
+}
+
+model BirdCountAdjustment {
+  id            String                       @id @default(uuid()) @db.Uuid
+  chickenTypeId String                       @db.Uuid
+  occurredAt    DateTime                     @db.Timestamptz(6)
+  direction     BirdCountAdjustmentDirection
+  quantity      Int
+  notes         String?                      @db.VarChar(200)
+  createdAt     DateTime                     @default(now()) @db.Timestamptz(6)
+  chickenType   ChickenType                  @relation(fields: [chickenTypeId], references: [id], onDelete: Restrict)
+
+  @@index([chickenTypeId, occurredAt])
+  @@index([createdAt])
 }
 
 model DailySale {
