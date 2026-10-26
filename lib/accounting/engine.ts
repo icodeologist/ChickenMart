@@ -720,9 +720,17 @@ export async function getBirdCounter() {
 export async function createCreditCustomer(input: CreditCustomerInput) {
   input = creditCustomerInput.parse(input);
   return runIdempotent("credit-customer", input.idempotencyKey, async (tx) => {
-    const existing = await tx.customer.findFirst({ where: { OR: [{ name: { equals: input.name, mode: "insensitive" } }, { phone: input.phone }] } });
+    const existing = await tx.customer.findFirst({ where: { OR: [{ name: { equals: input.name, mode: "insensitive" } }, ...(input.phone ? [{ phone: input.phone }] : [])] } });
     if (existing) throw new AccountingError("A customer with this name or number already exists.", 409);
-    return tx.customer.create({ data: { name: input.name, phone: input.phone, address: input.address } });
+    return tx.customer.create({ data: { name: input.name, phone: input.phone || null, address: input.address } });
+  });
+}
+
+export async function getCreditCustomers() {
+  return prisma.customer.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, phone: true, address: true },
   });
 }
 

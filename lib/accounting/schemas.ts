@@ -167,7 +167,7 @@ const customerSalePaymentMethod = z.enum(["CASH", "UPI", "NET_BANKING", "CREDIT"
 export const creditCustomerInput = z.object({
   idempotencyKey,
   name: trimmed.min(1).max(140),
-  phone: trimmed.min(5).max(30),
+  phone: trimmed.max(30).optional(),
   address: trimmed.min(1).max(500),
 });
 
