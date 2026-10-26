@@ -121,8 +121,9 @@ export default function CreditLinePage() {
 
   function printStatement() {
     if (!selectedSupplier) return;
-    const supplierRows = rows?.filter((row) => row.supplierId === selectedSupplier.id) ?? [];
-    const supplierPayments = paymentHistory.filter((entry) => entry.supplierId === selectedSupplier.id);
+    const supplierName = selectedSupplier.name.trim().toUpperCase();
+    const supplierRows = rows?.filter((row) => row.supplier.trim().toUpperCase() === supplierName) ?? [];
+    const supplierPayments = paymentHistory.filter((entry) => entry.supplier.trim().toUpperCase() === supplierName);
     const uniqueBills = new Map(supplierRows.map((row) => [row.payableId, row]));
     const totalPurchases = [...uniqueBills.values()].reduce((total, row) => total + paise(row.totalAmount), BigInt(0));
     const totalPaid = supplierPayments.reduce((total, entry) => total + paise(entry.amount), BigInt(0));
@@ -168,8 +169,8 @@ export default function CreditLinePage() {
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierId);
   const filteredRows = useMemo(
-    () => rows?.filter((row) => row.supplierId === supplierId) ?? [],
-    [rows, supplierId],
+    () => rows?.filter((row) => row.supplier.trim().toUpperCase() === (selectedSupplier?.name ?? "").trim().toUpperCase()) ?? [],
+    [rows, selectedSupplier],
   );
   const paymentSummaries = useMemo(() => summarizeSupplierPayments(rows ?? []), [rows]);
   const selectedSummary = paymentSummaries.find((summary) => summary.supplier.trim().toUpperCase() === (suppliers.find((supplier) => supplier.id === payment?.supplierId)?.name ?? "").trim().toUpperCase());
