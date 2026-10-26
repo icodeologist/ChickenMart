@@ -1556,7 +1556,7 @@ export async function getSupplierCreditLines(limit?: number) {
   return receipts.flatMap((receipt) => {
     if (!receipt.payable) return [];
     const paidAmount = money(sum(receipt.payable.payments.map((payment) => payment.appliedAmount)));
-    const remainingAmount = money(D(receipt.payable.originalAmount).minus(paidAmount));
+    const remainingAmount = money(D(receipt.payable.originalAmount).minus(paidAmount).greaterThan(ZERO) ? D(receipt.payable.originalAmount).minus(paidAmount) : ZERO);
     const paymentMethods = [...new Set(receipt.payable.payments.map((payment) => payment.method))];
     const paymentMethod = paymentMethods.length ? paymentMethods.join(" + ") : null;
 

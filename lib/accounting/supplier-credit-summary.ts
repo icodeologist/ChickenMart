@@ -7,9 +7,10 @@ export type SupplierCreditSummaryRow = {
 const TRACKED_SUPPLIERS = ["KSP", "NPF"] as const;
 
 function toPaise(value: string) {
-  const match = value.trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
+  const match = value.trim().match(/^(-?)(\d+)(?:\.(\d{1,2}))?$/);
   if (!match) throw new Error("Invalid supplier balance.");
-  return BigInt(match[1]) * BigInt(100) + BigInt((match[2] ?? "").padEnd(2, "0"));
+  const amount = BigInt(match[2]) * BigInt(100) + BigInt((match[3] ?? "").padEnd(2, "0"));
+  return match[1] === "-" ? -amount : amount;
 }
 
 function fromPaise(value: bigint) {
