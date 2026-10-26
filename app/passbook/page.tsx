@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowUpDown, BookOpen, CalendarDays, Loader2, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowUpDown, BookOpen, CalendarDays, ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,9 @@ type PassbookData = {
   totalExpenses: string;
   totalCustomerCollections: string;
   customerOutstanding: string;
-  currentBalance: string;
+  supplierOutstanding: string;
+  balance: string;
+  pagination: { page: number; pageSize: number; totalEntries: number; totalPages: number };
 };
 
 type NewEntry = {
@@ -65,7 +67,10 @@ function isPassbookData(value: unknown): value is PassbookData {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   if (!Array.isArray(record.entries)) return false;
-  if (![record.totalPurchases, record.totalPayments, record.totalHardCash, record.totalUpi, record.totalCredit, record.totalExpenses, record.totalCustomerCollections, record.customerOutstanding, record.currentBalance].every((amount) => typeof amount === "string")) return false;
+  if (!record.pagination || typeof record.pagination !== "object") return false;
+  const pagination = record.pagination as Record<string, unknown>;
+  if (![pagination.page, pagination.pageSize, pagination.totalEntries, pagination.totalPages].every((value) => typeof value === "number")) return false;
+  if (![record.totalPurchases, record.totalPayments, record.totalHardCash, record.totalUpi, record.totalCredit, record.totalExpenses, record.totalCustomerCollections, record.customerOutstanding, record.supplierOutstanding, record.balance].every((amount) => typeof amount === "string")) return false;
   return record.entries.every((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const row = entry as Record<string, unknown>;
@@ -94,11 +99,12 @@ export default function PassbookPage() {
   const [saving, setSaving] = useState(false);
   const [period, setPeriod] = useState<Period>("ALL");
   const [sortOrder, setSortOrder] = useState<SortOrder>("RECENT");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let active = true;
 
-    const query = new URLSearchParams({ v: "8", period, sort: sortOrder });
+    const query = new URLSearchParams({ v: "9", period, sort: sortOrder, page: String(page), pageSize: "25" });
     void fetch(`/api/accounting/purchase-passbook?${query}`, { cache: "no-store" })
       .then(async (response) => {
         const result: unknown = await response.json();
@@ -115,7 +121,7 @@ export default function PassbookPage() {
       });
 
     return () => { active = false; };
-  }, [period, reloadKey, sortOrder]);
+  }, [page, period, reloadKey, sortOrder]);
 
   async function saveEntry(event: FormEvent) {
     event.preventDefault();
@@ -139,6 +145,7 @@ export default function PassbookPage() {
       if (!response.ok) throw new Error(result.error || "Could not save the entry.");
       setNewEntry(undefined);
       setData(undefined);
+      setPage(1);
       setNotice("Passbook entry added.");
       setReloadKey((key) => key + 1);
     } catch (reason) {
@@ -155,7 +162,7 @@ export default function PassbookPage() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-[.16em] text-emerald-700">Chicken Mart</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Passbook</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">Only money actually received increases the balance. Customer credit is tracked separately until the customer pays.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">Balance is actual cash and bank money from the ledger. Credit purchases change what you owe, while supplier payments always reduce the balance.</p>
           </div>
           <Button onClick={() => { setError(""); setNotice(""); setNewEntry({ date: new Date().toISOString().slice(0, 10), description: "", amount: "", paymentType: "HARD_CASH" }); }} className="gap-2">
             <Plus size={17} /> Add entry
@@ -185,11 +192,12 @@ export default function PassbookPage() {
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-300">Money record</p>
                   <h2 className="mt-1 text-xl font-bold">Shop passbook</h2>
-                  <p className="mt-1 text-sm text-emerald-100/70">{data.entries.length} {data.entries.length === 1 ? "entry" : "entries"}</p>
+                  <p className="mt-1 text-sm text-emerald-100/70">{data.pagination.totalEntries} {data.pagination.totalEntries === 1 ? "entry" : "entries"}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-5 sm:text-right">
-                <div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Money we have</p><p className={`mt-1 text-2xl font-bold tabular-nums sm:text-3xl ${isNegative(data.currentBalance) ? "text-rose-300" : "text-white"}`}>{formatMoney(data.currentBalance)}</p></div>
+              <div className="grid grid-cols-3 gap-5 sm:text-right">
+                <div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Balance</p><p className={`mt-1 text-2xl font-bold tabular-nums sm:text-3xl ${isNegative(data.balance) ? "text-rose-300" : "text-white"}`}>{formatMoney(data.balance)}</p></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wider text-rose-300">Suppliers owed</p><p className="mt-1 text-2xl font-bold tabular-nums text-rose-200 sm:text-3xl">{formatMoney(data.supplierOutstanding)}</p></div>
                 <div><p className="text-xs font-semibold uppercase tracking-wider text-amber-300">Customers owe</p><p className="mt-1 text-2xl font-bold tabular-nums text-amber-200 sm:text-3xl">{formatMoney(data.customerOutstanding)}</p></div>
               </div>
             </div>
@@ -291,7 +299,7 @@ export default function PassbookPage() {
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-emerald-700">{formatMoney(data.totalUpi)}</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-amber-700">{formatMoney(data.totalCredit)}</td>
                       <td className="px-2.5 py-3 text-right text-xs font-extrabold tabular-nums text-rose-700">{formatMoney(data.totalExpenses)}</td>
-                      <td className={`px-2.5 py-3 text-right text-sm font-extrabold tabular-nums ${isNegative(data.currentBalance) ? "text-rose-700" : "text-emerald-950"}`}>{formatMoney(data.currentBalance)}</td>
+                      <td className={`px-2.5 py-3 text-right text-sm font-extrabold tabular-nums ${isNegative(data.balance) ? "text-rose-700" : "text-emerald-950"}`}>{formatMoney(data.balance)}</td>
                     </tr>
                   </tfoot>
                 )}
@@ -330,7 +338,7 @@ export default function PassbookPage() {
               )}
               {data.entries.length > 0 && (
                 <div className="bg-emerald-50 p-4 sm:p-5">
-                  <p className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-900">Visible totals</p>
+                  <p className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-900">Filtered totals</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <MobileTotal label="Chicken" value={data.totalPurchases} out />
                     <MobileTotal label="Payment" value={data.totalPayments} out />
@@ -342,6 +350,18 @@ export default function PassbookPage() {
                 </div>
               )}
             </div>
+            {data.pagination.totalEntries > 0 && (
+              <div className="flex flex-col gap-3 border-t border-stone-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <p className="text-sm font-medium text-stone-500">
+                  Showing {(data.pagination.page - 1) * data.pagination.pageSize + 1}–{Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalEntries)} of {data.pagination.totalEntries}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button type="button" className="h-9 gap-1.5 border border-stone-300 bg-white px-3 text-stone-700 shadow-none hover:bg-stone-100" disabled={data.pagination.page <= 1} onClick={() => changePage(data.pagination.page - 1)}><ChevronLeft size={16}/>Previous</Button>
+                  <span className="min-w-24 text-center text-sm font-bold text-stone-700">Page {data.pagination.page} of {data.pagination.totalPages}</span>
+                  <Button type="button" className="h-9 gap-1.5 border border-stone-300 bg-white px-3 text-stone-700 shadow-none hover:bg-stone-100" disabled={data.pagination.page >= data.pagination.totalPages} onClick={() => changePage(data.pagination.page + 1)}>Next<ChevronRight size={16}/></Button>
+                </div>
+              </div>
+            )}
           </Card>
         )}
 
@@ -388,13 +408,21 @@ export default function PassbookPage() {
   function changePeriod(value: Period) {
     setError("");
     setData(undefined);
+    setPage(1);
     setPeriod(value);
   }
 
   function changeSort(value: SortOrder) {
     setError("");
     setData(undefined);
+    setPage(1);
     setSortOrder(value);
+  }
+
+  function changePage(value: number) {
+    setError("");
+    setData(undefined);
+    setPage(value);
   }
 }
 

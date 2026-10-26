@@ -19,7 +19,7 @@ type Activity = {
   direction: "IN" | "OUT" | "NEUTRAL";
 };
 type Overview = {
-  moneyAvailable: string;
+  balance: string;
   customerOutstanding: string;
   supplierOutstanding: string;
   estimatedPurchaseCost: string;
@@ -79,7 +79,7 @@ export default function AdminPage() {
         : !data ? <div className="flex items-center gap-2 py-20 text-sm font-medium text-stone-500"><Loader2 className="animate-spin" size={18}/>Loading shop position…</div>
           : <>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Shop position">
-              <Position label="Money we have" value={data.moneyAvailable} note="Current Passbook balance" tone="money" href="/passbook"/>
+              <Position label="Balance" value={data.balance} note="Actual cash and bank ledger balance" tone="money" href="/passbook"/>
               <Position label="Total estimated profit" value={data.estimatedProfit} note={`${formatMoney(data.estimatedSales)} expected sales − ${formatMoney(data.estimatedPurchaseCost)} purchase cost`} tone="profit" href="/view"/>
               <Position label="Customers owe us" value={data.customerOutstanding} note={`${data.customersOwing.length} customer${data.customersOwing.length === 1 ? "" : "s"} with balance`} tone="customer" href="/credit-page"/>
               <Position label="We owe suppliers" value={data.supplierOutstanding} note={`${data.suppliersPendingCount} supplier${data.suppliersPendingCount === 1 ? "" : "s"} with payment pending`} tone="supplier" href="/credit-line"/>

@@ -127,6 +127,23 @@ export const manualPassbookEntryInput = z.object({
   paymentType: z.enum(["HARD_CASH", "UPI", "CREDIT", "EXPENSE"]),
 });
 
+export const customerCreditEntryInput = z.object({
+  idempotencyKey,
+  customerName: trimmed.min(1).max(140),
+  description: trimmed.min(1).max(200),
+  amount: moneyString,
+  creditedAt: dateTime,
+});
+
+export const customerCreditEntryPaymentInput = z.object({
+  idempotencyKey,
+  customerCreditEntryId: uuid,
+  paidAt: dateTime,
+  amount: moneyString,
+  paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
+  accountId: uuid.optional(),
+});
+
 const customerPaymentMethod = z.enum(["CASH", "UPI", "NET_BANKING"]);
 const customerSalePaymentMethod = z.enum(["CASH", "UPI", "NET_BANKING", "CREDIT"]);
 
@@ -218,6 +235,8 @@ export type SupplierEditInput = z.infer<typeof supplierEditInput>;
 export type SupplierDeleteInput = z.infer<typeof supplierDeleteInput>;
 export type ChickenTypeInput = z.infer<typeof chickenTypeInput>;
 export type ManualPassbookEntryInput = z.infer<typeof manualPassbookEntryInput>;
+export type CustomerCreditEntryInput = z.infer<typeof customerCreditEntryInput>;
+export type CustomerCreditEntryPaymentInput = z.infer<typeof customerCreditEntryPaymentInput>;
 export type CreditCustomerInput = z.infer<typeof creditCustomerInput>;
 export type CustomerCreditSaleInput = z.infer<typeof customerCreditSaleInput>;
 export type CustomerCreditPaymentInput = z.infer<typeof customerCreditPaymentInput>;

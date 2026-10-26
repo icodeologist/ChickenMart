@@ -56,7 +56,9 @@ describe("supplier payments in the passbook", () => {
   });
 
   it("settles the invoice, records excess as advance, and deducts the full payment", async () => {
-    const startingBalance = (await getPurchasePassbook()).currentBalance;
+    const startingPassbook = await getPurchasePassbook();
+    const startingBalance = startingPassbook.balance;
+    const startingSupplierOutstanding = startingPassbook.supplierOutstanding;
     const receipt = await postReceipt({
       idempotencyKey: `${keyPrefix}-receipt`,
       receiptNumber,
@@ -74,8 +76,9 @@ describe("supplier payments in the passbook", () => {
     const payable = await prisma.supplierPayable.findUniqueOrThrow({ where: { stockReceiptId: receipt.id } });
     const postedItem = await prisma.stockReceiptItem.findFirstOrThrow({ where: { stockReceiptId: receipt.id } });
     expect(await prisma.inventoryMovement.count({ where: { stockReceiptItemId: postedItem.id } })).toBe(0);
-    const afterPurchase = (await getPurchasePassbook()).currentBalance;
-    expect(afterPurchase.minus(startingBalance).toFixed(2)).toBe("-1000.00");
+    const afterPurchase = (await getPurchasePassbook()).balance;
+    expect(afterPurchase.minus(startingBalance).toFixed(2)).toBe("0.00");
+    expect((await getPurchasePassbook()).supplierOutstanding.minus(startingSupplierOutstanding).toFixed(2)).toBe("1000.00");
 
     const payment = await postSupplierSettlement({
       idempotencyKey: `${keyPrefix}-payment`,
@@ -96,7 +99,8 @@ describe("supplier payments in the passbook", () => {
     expect(savedPayment.advanceAmount.toFixed(2)).toBe("200.00");
 
     const passbook = await getPurchasePassbook();
-    expect(passbook.currentBalance.minus(afterPurchase).toFixed(2)).toBe("-1200.00");
+    expect(passbook.balance.minus(afterPurchase).toFixed(2)).toBe("-1200.00");
+    expect(passbook.supplierOutstanding.minus(startingSupplierOutstanding).toFixed(2)).toBe("0.00");
     expect(passbook.entries.find((entry) => entry.id === `payment-${payment.id}`)?.description).toContain("200.00 advance");
     expect((await prisma.supplierPayable.findUniqueOrThrow({ where: { id: payable.id } })).status).toBe("PAID");
 
@@ -117,7 +121,7 @@ describe("supplier payments in the passbook", () => {
     expect(convertedPayment.appliedAmount.toFixed(2)).toBe("0.00");
     expect(convertedPayment.advanceAmount.toFixed(2)).toBe("1200.00");
     const afterDelete = await getPurchasePassbook();
-    expect(afterDelete.currentBalance.minus(startingBalance).toFixed(2)).toBe("-1200.00");
+    expect(afterDelete.balance.minus(startingBalance).toFixed(2)).toBe("-1200.00");
     expect(afterDelete.entries.some((entry) => entry.id === `purchase-${receiptItem.id}`)).toBe(false);
     expect(afterDelete.entries.some((entry) => entry.id === `payment-${payment.id}`)).toBe(true);
   });

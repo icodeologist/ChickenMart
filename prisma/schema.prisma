@@ -471,29 +471,30 @@ model OwnerWithdrawal {
 }
 
 model MoneyMovement {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  occurredAt          DateTime               @db.Timestamptz(6)
-  amount              Decimal                @db.Decimal(16, 2)
-  type                MoneyMovementType
-  fromAccountId       String?                @db.Uuid
-  toAccountId         String?                @db.Uuid
-  dailySaleId         String?                @db.Uuid
-  reversalOfId        String?                @unique @db.Uuid
-  reference           String?                @db.VarChar(100)
-  notes               String?                @db.Text
-  createdAt           DateTime               @default(now()) @db.Timestamptz(6)
-  fromAccount         Account?               @relation("MoneyOut", fields: [fromAccountId], references: [id], onDelete: Restrict)
-  toAccount           Account?               @relation("MoneyIn", fields: [toAccountId], references: [id], onDelete: Restrict)
-  dailySale           DailySale?             @relation(fields: [dailySaleId], references: [id], onDelete: Restrict)
-  reversalOf          MoneyMovement?         @relation("MoneyReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversedBy          MoneyMovement?         @relation("MoneyReversal")
-  openingBalance      OpeningAccountBalance?
-  expense             Expense?
-  supplierPayment     SupplierPayment?
-  customerCollection  CustomerCollection?
-  ownerWithdrawal     OwnerWithdrawal?
-  creditSalePayment   CreditSalePayment?
-  manualPassbookEntry ManualPassbookEntry?
+  id                         String                      @id @default(uuid()) @db.Uuid
+  occurredAt                 DateTime                    @db.Timestamptz(6)
+  amount                     Decimal                     @db.Decimal(16, 2)
+  type                       MoneyMovementType
+  fromAccountId              String?                     @db.Uuid
+  toAccountId                String?                     @db.Uuid
+  dailySaleId                String?                     @db.Uuid
+  reversalOfId               String?                     @unique @db.Uuid
+  reference                  String?                     @db.VarChar(100)
+  notes                      String?                     @db.Text
+  createdAt                  DateTime                    @default(now()) @db.Timestamptz(6)
+  fromAccount                Account?                    @relation("MoneyOut", fields: [fromAccountId], references: [id], onDelete: Restrict)
+  toAccount                  Account?                    @relation("MoneyIn", fields: [toAccountId], references: [id], onDelete: Restrict)
+  dailySale                  DailySale?                  @relation(fields: [dailySaleId], references: [id], onDelete: Restrict)
+  reversalOf                 MoneyMovement?              @relation("MoneyReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy                 MoneyMovement?              @relation("MoneyReversal")
+  openingBalance             OpeningAccountBalance?
+  expense                    Expense?
+  supplierPayment            SupplierPayment?
+  customerCollection         CustomerCollection?
+  ownerWithdrawal            OwnerWithdrawal?
+  creditSalePayment          CreditSalePayment?
+  customerCreditEntryPayment CustomerCreditEntryPayment?
+  manualPassbookEntry        ManualPassbookEntry?
 
   @@index([occurredAt])
   @@index([fromAccountId, occurredAt])
@@ -513,4 +514,30 @@ model ManualPassbookEntry {
 
   @@index([entryDate, createdAt])
   @@index([paymentType, entryDate])
+}
+
+model CustomerCreditEntry {
+  id           String                       @id @default(uuid()) @db.Uuid
+  customerName String                       @db.VarChar(140)
+  description  String                       @db.VarChar(200)
+  amount       Decimal                      @db.Decimal(16, 2)
+  creditedAt   DateTime                     @db.Timestamptz(6)
+  createdAt    DateTime                     @default(now()) @db.Timestamptz(6)
+  payments     CustomerCreditEntryPayment[]
+
+  @@index([creditedAt, createdAt])
+}
+
+model CustomerCreditEntryPayment {
+  id                    String                @id @default(uuid()) @db.Uuid
+  customerCreditEntryId String                @db.Uuid
+  paidAt                DateTime              @db.Timestamptz(6)
+  amount                Decimal               @db.Decimal(16, 2)
+  method                CustomerPaymentMethod
+  moneyMovementId       String                @unique @db.Uuid
+  createdAt             DateTime              @default(now()) @db.Timestamptz(6)
+  customerCreditEntry   CustomerCreditEntry   @relation(fields: [customerCreditEntryId], references: [id], onDelete: Restrict)
+  moneyMovement         MoneyMovement         @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+
+  @@index([customerCreditEntryId, paidAt])
 }

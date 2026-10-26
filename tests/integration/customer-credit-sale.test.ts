@@ -48,7 +48,7 @@ describe("customer credit sales", () => {
   });
 
   it("records an unpaid sale without requiring or changing inventory", async () => {
-    const balanceBefore = (await getPurchasePassbook()).currentBalance;
+    const balanceBefore = (await getPurchasePassbook()).balance;
     const outstandingBefore = (await getPurchasePassbook()).customerOutstanding;
     const result = await postCustomerCreditSale({
       idempotencyKey: key,
@@ -72,9 +72,10 @@ describe("customer credit sales", () => {
     expect(await prisma.moneyMovement.count({ where: { reference: sale.id, type: MoneyMovementType.SALE_RECEIPT } })).toBe(0);
 
     const afterCredit = await getPurchasePassbook();
-    expect(afterCredit.currentBalance.toFixed(2)).toBe(balanceBefore.toFixed(2));
+    expect(afterCredit.balance.toFixed(2)).toBe(balanceBefore.toFixed(2));
     expect(afterCredit.customerOutstanding.minus(outstandingBefore).toFixed(2)).toBe("200.00");
-    expect(afterCredit.entries.some((entry) => entry.id === `customer-credit-${sale.id}`)).toBe(true);
+    expect(afterCredit.entries.some((entry) => entry.id === `customer-credit-${sale.id}`)).toBe(false);
+    expect(afterCredit.entries.some((entry) => entry.id.startsWith("customer-credit-summary-") && entry.entryType === "CUSTOMER_CREDIT")).toBe(true);
 
     await postCustomerCreditPayment({
       idempotencyKey: `${key}-partial-payment`,
@@ -86,12 +87,12 @@ describe("customer credit sales", () => {
     });
 
     const afterPayment = await getPurchasePassbook();
-    expect(afterPayment.currentBalance.minus(balanceBefore).toFixed(2)).toBe("80.00");
+    expect(afterPayment.balance.minus(balanceBefore).toFixed(2)).toBe("80.00");
     expect(afterPayment.customerOutstanding.minus(outstandingBefore).toFixed(2)).toBe("120.00");
     expect(afterPayment.entries.some((entry) => entry.entryType === "CUSTOMER_PAYMENT" && entry.customerPaymentAmount.toFixed(2) === "80.00")).toBe(true);
 
     const overview = await getAdminOverview();
-    expect(overview.moneyAvailable.toFixed(2)).toBe(afterPayment.currentBalance.toFixed(2));
+    expect(overview.balance.toFixed(2)).toBe(afterPayment.balance.toFixed(2));
     expect(overview.customerOutstanding.toFixed(2)).toBe(afterPayment.customerOutstanding.toFixed(2));
     expect(overview.estimatedSales.minus(overview.estimatedPurchaseCost).toFixed(2)).toBe(overview.estimatedProfit.toFixed(2));
     expect(overview.customersOwing.find((customer) => customer.id === customerId)?.amount.toFixed(2)).toBe("120.00");

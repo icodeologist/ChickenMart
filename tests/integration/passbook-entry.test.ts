@@ -26,7 +26,7 @@ describe("manual passbook entries", () => {
   });
 
   it("atomically records hard cash received as a money inflow", async () => {
-    const balanceBefore = (await getPurchasePassbook()).currentBalance;
+    const balanceBefore = (await getPurchasePassbook()).balance;
     const result = await postManualPassbookEntry({
       idempotencyKey: "passbook-hard-cash-test",
       entryDate: new Date("2026-10-20T18:00:00.000Z"),
@@ -43,12 +43,12 @@ describe("manual passbook entries", () => {
     expect(entry.moneyMovement?.type).toBe(MoneyMovementType.MANUAL_RECEIPT);
     expect(entry.moneyMovement?.fromAccountId).toBeNull();
     expect(entry.moneyMovement?.toAccountId).not.toBeNull();
-    expect((await getPurchasePassbook()).currentBalance.minus(balanceBefore).toFixed(2)).toBe("1.00");
+    expect((await getPurchasePassbook()).balance.minus(balanceBefore).toFixed(2)).toBe("1.00");
   });
 
   it("records credit without changing cash or bank", async () => {
     const before = await prisma.moneyMovement.count();
-    const balanceBefore = (await getPurchasePassbook()).currentBalance;
+    const balanceBefore = (await getPurchasePassbook()).balance;
     const result = await postManualPassbookEntry({
       idempotencyKey: "passbook-credit-test",
       entryDate: new Date("2026-10-20T18:00:00.000Z"),
@@ -60,11 +60,11 @@ describe("manual passbook entries", () => {
     const entry = await prisma.manualPassbookEntry.findUniqueOrThrow({ where: { id: result.id } });
     expect(entry.moneyMovementId).toBeNull();
     expect(await prisma.moneyMovement.count()).toBe(before);
-    expect((await getPurchasePassbook()).currentBalance.minus(balanceBefore).toFixed(2)).toBe("-1.00");
+    expect((await getPurchasePassbook()).balance.minus(balanceBefore).toFixed(2)).toBe("0.00");
   });
 
   it("records a business expense and reduces the balance", async () => {
-    const balanceBefore = (await getPurchasePassbook()).currentBalance;
+    const balanceBefore = (await getPurchasePassbook()).balance;
     const result = await postManualPassbookEntry({
       idempotencyKey: "passbook-expense-test",
       entryDate: new Date("2026-10-20T18:00:00.000Z"),
@@ -78,7 +78,7 @@ describe("manual passbook entries", () => {
     expect(entry.moneyMovement?.type).toBe(MoneyMovementType.EXPENSE_PAYMENT);
     expect(entry.moneyMovement?.fromAccountId).not.toBeNull();
     expect(expense.amount.toFixed(2)).toBe("1.00");
-    expect((await getPurchasePassbook()).currentBalance.minus(balanceBefore).toFixed(2)).toBe("-1.00");
+    expect((await getPurchasePassbook()).balance.minus(balanceBefore).toFixed(2)).toBe("-1.00");
   });
 
   it("sorts recent and oldest by the time recorded, not the transaction date", async () => {
@@ -106,5 +106,34 @@ describe("manual passbook entries", () => {
 
     expect(recentTestEntries.map((entry) => entry.id)).toEqual([`manual-${newer.id}`, `manual-${older.id}`]);
     expect(oldestTestEntries.map((entry) => entry.id)).toEqual([`manual-${older.id}`, `manual-${newer.id}`]);
+  });
+
+  it("paginates after applying filters and sorting", async () => {
+    await postManualPassbookEntry({
+      idempotencyKey: "passbook-pagination-first-test",
+      entryDate: new Date("2026-10-20T18:00:00.000Z"),
+      description: "Pagination first",
+      amount: "1.00",
+      paymentType: "HARD_CASH",
+    });
+    await postManualPassbookEntry({
+      idempotencyKey: "passbook-pagination-second-test",
+      entryDate: new Date("2026-10-21T18:00:00.000Z"),
+      description: "Pagination second",
+      amount: "1.00",
+      paymentType: "HARD_CASH",
+    });
+
+    const firstPage = await getPurchasePassbook({ sort: "RECENT", page: 1, pageSize: 1 });
+    const secondPage = await getPurchasePassbook({ sort: "RECENT", page: 2, pageSize: 1 });
+    expect(firstPage.entries).toHaveLength(1);
+    expect(secondPage.entries).toHaveLength(1);
+    expect(firstPage.entries[0].id).not.toBe(secondPage.entries[0].id);
+    expect(firstPage.pagination.pageSize).toBe(1);
+    expect(firstPage.pagination.totalPages).toBe(firstPage.pagination.totalEntries);
+    expect(secondPage.totalHardCash.toFixed(2)).toBe(firstPage.totalHardCash.toFixed(2));
+
+    const clampedPage = await getPurchasePassbook({ page: 9999, pageSize: 1 });
+    expect(clampedPage.pagination.page).toBe(clampedPage.pagination.totalPages);
   });
 });

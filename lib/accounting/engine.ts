@@ -15,6 +15,8 @@ import {
   creditCustomerInput,
   chickenTypeInput,
   customerCreditPaymentInput,
+  customerCreditEntryInput,
+  customerCreditEntryPaymentInput,
   customerCreditSaleInput,
   customerCollectionInput,
   dailySaleInput,
@@ -40,6 +42,8 @@ import type {
   CreditCustomerInput,
   ChickenTypeInput,
   CustomerCreditPaymentInput,
+  CustomerCreditEntryInput,
+  CustomerCreditEntryPaymentInput,
   CustomerCreditSaleInput,
   CustomerCollectionInput,
   DailySaleInput,
@@ -934,13 +938,135 @@ export async function postManualPassbookEntry(input: ManualPassbookEntryInput) {
   });
 }
 
+export async function postCustomerCreditEntry(input: CustomerCreditEntryInput) {
+  input = customerCreditEntryInput.parse(input);
+  return runIdempotent("customer-credit-entry", input.idempotencyKey, async (tx) => tx.customerCreditEntry.create({
+    data: {
+      customerName: input.customerName,
+      description: input.description,
+      amount: money(input.amount),
+      creditedAt: input.creditedAt,
+    },
+  }));
+}
+
+export async function getCustomerCreditEntries() {
+  const entries = await prisma.customerCreditEntry.findMany({
+    include: { payments: { orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }] } },
+    orderBy: [{ creditedAt: "desc" }, { createdAt: "desc" }],
+  });
+  return entries.flatMap((entry) => {
+    const paidAmount = money(sum(entry.payments.map((payment) => payment.amount)));
+    const remainingAmount = money(D(entry.amount).minus(paidAmount));
+    return remainingAmount.greaterThan(ZERO) ? [{ ...entry, paidAmount, remainingAmount }] : [];
+  });
+}
+
+export async function postCustomerCreditEntryPayment(input: CustomerCreditEntryPaymentInput) {
+  input = customerCreditEntryPaymentInput.parse(input);
+  return runIdempotent("customer-credit-entry-payment", input.idempotencyKey, async (tx) => {
+    const entry = await tx.customerCreditEntry.findUnique({
+      where: { id: input.customerCreditEntryId },
+      include: { payments: { select: { amount: true } } },
+    });
+    if (!entry) throw new AccountingError("Customer credit entry was not found.", 404);
+    if (input.paidAt < entry.creditedAt) throw new AccountingError("Payment date cannot be before the credit date.");
+
+    const paidAmount = money(sum(entry.payments.map((payment) => payment.amount)));
+    const remainingAmount = money(D(entry.amount).minus(paidAmount));
+    const amount = money(input.amount);
+    if (amount.greaterThan(remainingAmount)) throw new AccountingError("Payment exceeds the remaining customer credit.", 409);
+
+    const account = await requireOrCreatePaymentAccount(tx, input.accountId, input.paymentMethod);
+    const movement = await tx.moneyMovement.create({
+      data: {
+        occurredAt: input.paidAt,
+        amount,
+        type: MoneyMovementType.CUSTOMER_COLLECTION,
+        toAccountId: account.id,
+        reference: entry.id,
+        notes: `Payment from ${entry.customerName}`,
+      },
+    });
+    return tx.customerCreditEntryPayment.create({
+      data: {
+        customerCreditEntryId: entry.id,
+        paidAt: input.paidAt,
+        amount,
+        method: input.paymentMethod,
+        moneyMovementId: movement.id,
+      },
+    });
+  });
+}
+
 type PassbookPeriod = "ALL" | "DAY" | "WEEK" | "MONTH";
 type PassbookSort = "RECENT" | "OLDEST" | "HIGHEST";
 
-export async function getPurchasePassbook(input: { period?: string | null; sort?: string | null } = {}) {
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
+const CUSTOMER_CREDIT_CUTOFF_UTC_HOUR = 14; // 7:30 p.m. Asia/Kolkata
+const CUSTOMER_CREDIT_SUMMARY_DELAY = 30 * 60 * 1000;
+const CUSTOMER_CREDIT_CUTOFF_ANCHOR = Date.UTC(1970, 0, 1, CUSTOMER_CREDIT_CUTOFF_UTC_HOUR);
+
+type CustomerCreditForSummary = { creditedAt: Date; amount: Prisma.Decimal.Value; customerName: string };
+
+export function calculateDailyCustomerCreditSummaries(credits: CustomerCreditForSummary[], now = new Date()) {
+  const windows = new Map<number, { amount: Prisma.Decimal; customers: Set<string> }>();
+  for (const credit of credits) {
+    const windowIndex = Math.floor((credit.creditedAt.getTime() - CUSTOMER_CREDIT_CUTOFF_ANCHOR) / DAY_MILLISECONDS);
+    const windowEnd = CUSTOMER_CREDIT_CUTOFF_ANCHOR + (windowIndex + 1) * DAY_MILLISECONDS;
+    const displayAt = windowEnd + CUSTOMER_CREDIT_SUMMARY_DELAY;
+    if (displayAt > now.getTime()) continue;
+    const window = windows.get(windowEnd) ?? { amount: money(ZERO), customers: new Set<string>() };
+    window.amount = money(window.amount.plus(credit.amount));
+    window.customers.add(credit.customerName.trim().toLocaleLowerCase("en-IN"));
+    windows.set(windowEnd, window);
+  }
+
+  const windowFormatter = new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  });
+  return [...windows.entries()].map(([windowEnd, window]) => {
+    const customerCount = window.customers.size;
+    const displayAt = new Date(windowEnd + CUSTOMER_CREDIT_SUMMARY_DELAY);
+    return {
+      id: `customer-credit-summary-${windowEnd}`,
+      occurredAt: displayAt,
+      recordedAt: displayAt,
+      supplier: null,
+      customer: null,
+      chickenType: null,
+      description: `Customer credit issued · ${customerCount} ${customerCount === 1 ? "customer" : "customers"} · ${windowFormatter.format(new Date(windowEnd - DAY_MILLISECONDS))} – ${windowFormatter.format(new Date(windowEnd))}`,
+      entryType: "CUSTOMER_CREDIT" as const,
+      paymentMethod: null,
+      manualPaymentType: null,
+      manualAmount: ZERO,
+      customerCreditAmount: money(window.amount),
+      customerPaymentAmount: ZERO,
+      debitAmount: ZERO,
+      creditAmount: ZERO,
+      moneyMovementId: null,
+    };
+  });
+}
+
+function positiveInteger(value: string | number | null | undefined, fallback: number) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export async function getPurchasePassbook(input: { period?: string | null; sort?: string | null; page?: string | number | null; pageSize?: string | number | null; now?: Date } = {}) {
   const period: PassbookPeriod = ["DAY", "WEEK", "MONTH"].includes(input.period ?? "") ? input.period as PassbookPeriod : "ALL";
   const sort: PassbookSort = ["OLDEST", "HIGHEST"].includes(input.sort ?? "") ? input.sort as PassbookSort : "RECENT";
-  const [receipts, manualEntries, creditSales] = await Promise.all([
+  const requestedPage = positiveInteger(input.page, 1);
+  const pageSize = Math.min(positiveInteger(input.pageSize, 25), 50);
+  const now = input.now ?? new Date();
+  const [receipts, manualEntries, creditSales, moneyMovements, customerCreditEntries] = await Promise.all([
     prisma.stockReceipt.findMany({
       include: {
         supplier: { select: { name: true } },
@@ -957,6 +1083,13 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
         items: { include: { chickenType: { select: { name: true } } } },
         payments: true,
       },
+    }),
+    prisma.moneyMovement.findMany({
+      orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, occurredAt: true, amount: true, fromAccountId: true, toAccountId: true },
+    }),
+    prisma.customerCreditEntry.findMany({
+      include: { payments: true },
     }),
   ]);
 
@@ -977,6 +1110,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       customerPaymentAmount: ZERO,
       debitAmount: money(item.lineAmount),
       creditAmount: ZERO,
+      moneyMovementId: null,
     }))),
     ...(receipt.payable?.payments ?? []).map((payment) => ({
       id: `payment-${payment.id}`,
@@ -996,6 +1130,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       customerPaymentAmount: ZERO,
       debitAmount: ZERO,
       creditAmount: money(payment.amount),
+      moneyMovementId: payment.moneyMovementId,
     })),
   ]);
 
@@ -1015,27 +1150,10 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
     customerPaymentAmount: ZERO,
     debitAmount: ZERO,
     creditAmount: ZERO,
+    moneyMovementId: entry.moneyMovementId,
   }));
 
-  const customerEntries = creditSales.flatMap((sale) => [
-    {
-      id: `customer-credit-${sale.id}`,
-      occurredAt: sale.soldAt,
-      recordedAt: sale.createdAt,
-      supplier: null,
-      customer: sale.customer.name,
-      chickenType: sale.items.map((item) => item.chickenType.name).join(", ") || null,
-      description: `Credit sale to ${sale.customer.name}`,
-      entryType: "CUSTOMER_CREDIT" as const,
-      paymentMethod: null,
-      manualPaymentType: null,
-      manualAmount: ZERO,
-      customerCreditAmount: money(sale.totalAmount),
-      customerPaymentAmount: ZERO,
-      debitAmount: ZERO,
-      creditAmount: ZERO,
-    },
-    ...sale.payments.map((payment) => ({
+  const customerEntries = creditSales.flatMap((sale) => sale.payments.map((payment) => ({
       id: `customer-payment-${payment.id}`,
       occurredAt: payment.paidAt,
       recordedAt: payment.createdAt,
@@ -1051,34 +1169,84 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       customerPaymentAmount: money(payment.amount),
       debitAmount: ZERO,
       creditAmount: ZERO,
-    })),
-  ]);
+      moneyMovementId: payment.moneyMovementId,
+    })));
+
+  const customerCreditLedgerEntries = customerCreditEntries.flatMap((entry) => entry.payments.map((payment) => ({
+      id: `customer-credit-entry-payment-${payment.id}`,
+      occurredAt: payment.paidAt,
+      recordedAt: payment.createdAt,
+      supplier: null,
+      customer: entry.customerName,
+      chickenType: null,
+      description: `Received from ${entry.customerName} · ${entry.description}`,
+      entryType: "CUSTOMER_PAYMENT" as const,
+      paymentMethod: payment.method,
+      manualPaymentType: null,
+      manualAmount: ZERO,
+      customerCreditAmount: ZERO,
+      customerPaymentAmount: money(payment.amount),
+      debitAmount: ZERO,
+      creditAmount: ZERO,
+      moneyMovementId: payment.moneyMovementId,
+    })));
+
+  const customerCreditSummaries = calculateDailyCustomerCreditSummaries([
+    ...creditSales.map((sale) => ({ creditedAt: sale.soldAt, amount: sale.totalAmount, customerName: sale.customer.name })),
+    ...customerCreditEntries.map((entry) => ({ creditedAt: entry.creditedAt, amount: entry.amount, customerName: entry.customerName })),
+  ], now);
 
   const entryOrder = { PURCHASE: 0, CUSTOMER_CREDIT: 1, PAYMENT: 2, CUSTOMER_PAYMENT: 3, MANUAL: 4 } as const;
-  const entries = [...supplierEntries, ...customerEntries, ...manualPassbookEntries].sort((left, right) =>
+  const entries = [...supplierEntries, ...customerEntries, ...customerCreditLedgerEntries, ...customerCreditSummaries, ...manualPassbookEntries].sort((left, right) =>
     left.occurredAt.getTime() - right.occurredAt.getTime()
     || entryOrder[left.entryType] - entryOrder[right.entryType]
     || left.id.localeCompare(right.id),
   );
 
-  let runningBalance = ZERO;
+  // The displayed balance is the real cash/bank ledger balance. Purchases made
+  // on credit do not move money; payments always reduce the account balance.
+  // Supplier liability is reported separately as supplierOutstanding below.
+  let ledgerBalance = ZERO;
+  const balanceAfterMovement = new Map<string, Prisma.Decimal>();
+  const balanceBeforeTimestamp = new Map<number, Prisma.Decimal>();
+  const movementEffect = (movement: (typeof moneyMovements)[number]) => {
+    if (movement.toAccountId && !movement.fromAccountId) return D(movement.amount);
+    if (movement.fromAccountId && !movement.toAccountId) return D(movement.amount).negated();
+    return ZERO;
+  };
+
+  let movementIndex = 0;
+  let balanceBefore = ZERO;
+  const entryTimestamps = [...new Set(entries.map((entry) => entry.occurredAt.getTime()))].sort((left, right) => left - right);
+  for (const timestamp of entryTimestamps) {
+    while (movementIndex < moneyMovements.length && moneyMovements[movementIndex].occurredAt.getTime() < timestamp) {
+      balanceBefore = money(balanceBefore.plus(movementEffect(moneyMovements[movementIndex])));
+      movementIndex += 1;
+    }
+    balanceBeforeTimestamp.set(timestamp, money(balanceBefore));
+  }
+
+  for (const movement of moneyMovements) {
+    ledgerBalance = money(ledgerBalance.plus(movementEffect(movement)));
+    balanceAfterMovement.set(movement.id, money(ledgerBalance));
+  }
+
   const entriesWithBalance = entries.map((entry, sequence) => {
-    if (entry.entryType === "PURCHASE") runningBalance = money(runningBalance.minus(entry.debitAmount));
-    else if (entry.entryType === "PAYMENT") runningBalance = money(runningBalance.minus(entry.creditAmount));
-    else if (entry.entryType === "CUSTOMER_PAYMENT") runningBalance = money(runningBalance.plus(entry.customerPaymentAmount));
-    else if (entry.entryType === "CUSTOMER_CREDIT") runningBalance = money(runningBalance);
-    else if (entry.manualPaymentType === "CREDIT" || entry.manualPaymentType === "EXPENSE") runningBalance = money(runningBalance.minus(entry.manualAmount));
-    else runningBalance = money(runningBalance.plus(entry.manualAmount));
-    return { ...entry, runningBalance, sequence };
+    const runningBalance = entry.moneyMovementId
+      ? balanceAfterMovement.get(entry.moneyMovementId) ?? money(ledgerBalance)
+      : balanceBeforeTimestamp.get(entry.occurredAt.getTime()) ?? money(ledgerBalance);
+    const { moneyMovementId: _moneyMovementId, ...publicEntry } = entry;
+    void _moneyMovementId;
+    return { ...publicEntry, runningBalance, sequence };
   });
 
   const periodMilliseconds: Partial<Record<PassbookPeriod, number>> = {
-    DAY: 24 * 60 * 60 * 1000,
-    WEEK: 7 * 24 * 60 * 60 * 1000,
-    MONTH: 30 * 24 * 60 * 60 * 1000,
+    DAY: DAY_MILLISECONDS,
+    WEEK: 7 * DAY_MILLISECONDS,
+    MONTH: 30 * DAY_MILLISECONDS,
   };
-  const cutoff = period === "ALL" ? null : new Date(Date.now() - periodMilliseconds[period]!);
-  const visibleEntries = entriesWithBalance
+  const cutoff = period === "ALL" ? null : new Date(now.getTime() - periodMilliseconds[period]!);
+  const filteredEntries = entriesWithBalance
     .filter((entry) => !cutoff || entry.occurredAt >= cutoff)
     .sort((left, right) => {
       if (sort === "HIGHEST") {
@@ -1090,16 +1258,28 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       return direction * (left.recordedAt.getTime() - right.recordedAt.getTime()) || direction * (left.sequence - right.sequence);
     });
 
-  const totalPurchases = money(sum(visibleEntries.map((entry) => entry.debitAmount)));
-  const totalPayments = money(sum(visibleEntries.map((entry) => entry.creditAmount)));
-  const totalHardCash = money(sum(visibleEntries.map((entry) => entry.manualPaymentType === "HARD_CASH" ? entry.manualAmount : entry.entryType === "CUSTOMER_PAYMENT" && entry.paymentMethod === "CASH" ? entry.customerPaymentAmount : ZERO)));
-  const totalUpi = money(sum(visibleEntries.map((entry) => entry.manualPaymentType === "UPI" ? entry.manualAmount : entry.entryType === "CUSTOMER_PAYMENT" && entry.paymentMethod !== "CASH" ? entry.customerPaymentAmount : ZERO)));
-  const totalCredit = money(sum(visibleEntries.map((entry) => entry.manualPaymentType === "CREDIT" ? entry.manualAmount : entry.entryType === "CUSTOMER_CREDIT" ? entry.customerCreditAmount : ZERO)));
-  const totalExpenses = money(sum(visibleEntries.filter((entry) => entry.manualPaymentType === "EXPENSE").map((entry) => entry.manualAmount)));
-  const totalCustomerCollections = money(sum(visibleEntries.filter((entry) => entry.entryType === "CUSTOMER_PAYMENT").map((entry) => entry.customerPaymentAmount)));
-  const customerOutstanding = money(sum(creditSales
-    .filter((sale) => sale.status !== CreditStatus.WRITTEN_OFF)
-    .map((sale) => D(sale.totalAmount).minus(sum(sale.payments.map((payment) => payment.amount))))));
+  const totalEntries = filteredEntries.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const visibleEntries = filteredEntries.slice((page - 1) * pageSize, page * pageSize);
+
+  const totalPurchases = money(sum(filteredEntries.map((entry) => entry.debitAmount)));
+  const totalPayments = money(sum(filteredEntries.map((entry) => entry.creditAmount)));
+  const totalHardCash = money(sum(filteredEntries.map((entry) => entry.manualPaymentType === "HARD_CASH" ? entry.manualAmount : entry.entryType === "CUSTOMER_PAYMENT" && entry.paymentMethod === "CASH" ? entry.customerPaymentAmount : ZERO)));
+  const totalUpi = money(sum(filteredEntries.map((entry) => entry.manualPaymentType === "UPI" ? entry.manualAmount : entry.entryType === "CUSTOMER_PAYMENT" && entry.paymentMethod !== "CASH" ? entry.customerPaymentAmount : ZERO)));
+  const totalCredit = money(sum(filteredEntries.map((entry) => entry.manualPaymentType === "CREDIT" ? entry.manualAmount : entry.entryType === "CUSTOMER_CREDIT" ? entry.customerCreditAmount : ZERO)));
+  const totalExpenses = money(sum(filteredEntries.filter((entry) => entry.manualPaymentType === "EXPENSE").map((entry) => entry.manualAmount)));
+  const totalCustomerCollections = money(sum(filteredEntries.filter((entry) => entry.entryType === "CUSTOMER_PAYMENT").map((entry) => entry.customerPaymentAmount)));
+  const customerOutstanding = money(sum([
+    ...creditSales
+      .filter((sale) => sale.status !== CreditStatus.WRITTEN_OFF)
+      .map((sale) => D(sale.totalAmount).minus(sum(sale.payments.map((payment) => payment.amount)))),
+    ...customerCreditEntries
+      .map((entry) => D(entry.amount).minus(sum(entry.payments.map((payment) => payment.amount)))),
+  ]));
+  const supplierOutstanding = money(sum(receipts
+    .filter((receipt) => receipt.payable?.status !== PayableStatus.VOID)
+    .map((receipt) => D(receipt.payable?.originalAmount ?? ZERO).minus(sum(receipt.payable?.payments.map((payment) => payment.appliedAmount) ?? [])))));
 
   return {
     entries: visibleEntries,
@@ -1111,15 +1291,17 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
     totalExpenses,
     totalCustomerCollections,
     customerOutstanding,
-    currentBalance: runningBalance,
+    supplierOutstanding,
+    balance: money(ledgerBalance),
+    pagination: { page, pageSize, totalEntries, totalPages },
   };
 }
 
 export async function getAdminOverview() {
   const meatWindowEnd = new Date();
   const meatWindowStart = new Date(meatWindowEnd.getTime() - 30 * 24 * 60 * 60 * 1_000);
-  const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers] = await Promise.all([
-    getPurchasePassbook({ sort: "RECENT" }),
+  const [passbook, creditSales, supplierPayables, activeReceipts, activeSuppliers, customerCreditEntries] = await Promise.all([
+    getPurchasePassbook({ sort: "RECENT", pageSize: 8 }),
     prisma.creditSale.findMany({
       where: { status: { not: CreditStatus.WRITTEN_OFF } },
       include: { customer: { select: { id: true, name: true, phone: true } }, payments: { select: { amount: true } } },
@@ -1133,6 +1315,7 @@ export async function getAdminOverview() {
       select: { receivedAt: true, items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
     }),
     prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.customerCreditEntry.findMany({ include: { payments: { select: { amount: true } } } }),
   ]);
 
   const receiptEstimates = activeReceipts.flatMap((receipt) => receipt.items.map((item) => ({
@@ -1157,6 +1340,14 @@ export async function getAdminOverview() {
     const current = customerMap.get(sale.customer.id);
     if (current) current.amount = money(current.amount.plus(remaining));
     else customerMap.set(sale.customer.id, { id: sale.customer.id, name: sale.customer.name, phone: sale.customer.phone, amount: remaining });
+  }
+  for (const entry of customerCreditEntries) {
+    const remaining = money(D(entry.amount).minus(sum(entry.payments.map((payment) => payment.amount))));
+    if (!remaining.greaterThan(ZERO)) continue;
+    const normalizedName = entry.customerName.trim().toLocaleLowerCase("en-IN");
+    const current = [...customerMap.values()].find((customer) => customer.name.trim().toLocaleLowerCase("en-IN") === normalizedName);
+    if (current) current.amount = money(current.amount.plus(remaining));
+    else customerMap.set(`credit-entry:${normalizedName}`, { id: `credit-entry:${normalizedName}`, name: entry.customerName, phone: null, amount: remaining });
   }
 
   const mainSuppliers = activeSuppliers.filter((supplier) => ["KSP", "NPF"].includes(supplier.name.trim().toUpperCase()));
@@ -1197,7 +1388,7 @@ export async function getAdminOverview() {
   });
 
   return {
-    moneyAvailable: passbook.currentBalance,
+    balance: passbook.balance,
     customerOutstanding: passbook.customerOutstanding,
     supplierOutstanding: money(sum(suppliersOwed.map((supplier) => supplier.amount))),
     estimatedPurchaseCost: money(sum(receiptEstimates.map((row) => row.estimate.totalAmount))),
