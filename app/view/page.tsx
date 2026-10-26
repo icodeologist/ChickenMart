@@ -26,7 +26,6 @@ type Receipt = {
   profit: string;
   paidAmount: string;
   remainingAmount: string;
-  advanceAmount: string;
 };
 
 type EntryContext = {
@@ -217,7 +216,7 @@ export default function ReceivedChickenView() {
             <div className="divide-y divide-stone-200 xl:hidden">
               {rows.length ? rows.map((row) => <article key={row.id} className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="max-w-full truncate rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800" title={row.supplier}>{row.supplier}</span><time className="text-xs font-semibold text-stone-500">{new Date(row.receivedAt).toLocaleDateString("en-IN")}</time></div><h3 className="mt-2 font-bold text-stone-900">{row.chickenType}</h3></div><div className="shrink-0 text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Profit</p><p className={`mt-1 text-lg font-extrabold tabular-nums ${Number(row.profit) >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{money(row.profit)}</p></div></div>
-                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-stone-50 p-4 sm:grid-cols-3 lg:grid-cols-5"><Detail label="Birds" value={String(row.birdCount)}/><Detail label="Total weight" value={`${row.quantityKg} kg`}/><Detail label="Average" value={`${row.averageKgPerBird} kg`}/><Detail label="Wastage" value={`${row.wastageKg} kg`} warn/><Detail label="Meat" value={`${row.meatKg} kg`}/><Detail label="Buy/kg" value={money(row.purchaseRate)}/><Detail label="Sell/kg" value={money(row.sellingRate)} good/><Detail label="Purchase total" value={money(row.totalAmount)}/><Detail label="Paid" value={money(row.paidAmount)} good/><Detail label={hasAmount(row.advanceAmount) ? "Supplier advance" : "Remaining"} value={money(hasAmount(row.advanceAmount) ? row.advanceAmount : row.remainingAmount)} good={hasAmount(row.advanceAmount)} warn={!hasAmount(row.advanceAmount) && hasAmount(row.remainingAmount)}/><Detail label="Expected sales" value={money(row.salesAmount)} good/></div>
+                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-stone-50 p-4 sm:grid-cols-3 lg:grid-cols-5"><Detail label="Birds" value={String(row.birdCount)}/><Detail label="Total weight" value={`${row.quantityKg} kg`}/><Detail label="Average" value={`${row.averageKgPerBird} kg`}/><Detail label="Wastage" value={`${row.wastageKg} kg`} warn/><Detail label="Meat" value={`${row.meatKg} kg`}/><Detail label="Buy/kg" value={money(row.purchaseRate)}/><Detail label="Sell/kg" value={money(row.sellingRate)} good/><Detail label="Purchase total" value={money(row.totalAmount)}/><Detail label="Paid" value={money(row.paidAmount)} good/><Detail label="Remaining" value={money(row.remainingAmount)} warn={hasAmount(row.remainingAmount)}/><Detail label="Expected sales" value={money(row.salesAmount)} good/></div>
                 <div className="mt-3"><button type="button" onClick={() => beginEdit(row)} disabled={Boolean(busyId)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white text-xs font-bold text-stone-700 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50"><Pencil size={14}/>Edit</button></div>
               </article>) : <p className="p-12 text-center text-stone-500">No chicken added yet.</p>}
             </div>
@@ -275,7 +274,6 @@ function Detail({ label, value, good, warn }: { label: string; value: string; go
 }
 
 function PaymentStatus({ row }: { row: Receipt }) {
-  if (hasAmount(row.advanceAmount)) return <div className="flex flex-col items-end gap-0.5"><span className="rounded-md bg-violet-50 px-1.5 py-1 text-[11px] font-bold text-violet-800">Advance {money(row.advanceAmount)}</span><span className="text-[10px] text-stone-400">Paid {money(row.paidAmount)}</span></div>;
   if (hasAmount(row.remainingAmount)) return <div className="flex flex-col items-end gap-0.5"><span className="font-bold text-rose-700">Due {money(row.remainingAmount)}</span><span className="text-[10px] text-stone-400">Paid {money(row.paidAmount)}</span></div>;
   return <span className="rounded-md bg-emerald-50 px-1.5 py-1 text-[11px] font-bold text-emerald-800">Paid</span>;
 }

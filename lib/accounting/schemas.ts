@@ -97,6 +97,14 @@ export const supplierSettlementInput = z.object({
   paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
   notes: trimmed.max(500).optional(),
 });
+export const supplierPaymentBatchInput = z.object({
+  idempotencyKey,
+  supplierId: uuid,
+  paidAt: dateTime,
+  paymentAmount: moneyString,
+  paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
+  notes: trimmed.max(500).optional(),
+});
 
 export const supplierInput = z.object({
   idempotencyKey,
@@ -239,6 +247,7 @@ export type StockCountInput = z.infer<typeof stockCountInput>;
 export type ExpenseInput = z.infer<typeof expenseInput>;
 export type SupplierPaymentInput = z.infer<typeof supplierPaymentInput>;
 export type SupplierSettlementInput = z.infer<typeof supplierSettlementInput>;
+export type SupplierPaymentBatchInput = z.infer<typeof supplierPaymentBatchInput>;
 export type SupplierInput = z.infer<typeof supplierInput>;
 export type SupplierEditInput = z.infer<typeof supplierEditInput>;
 export type SupplierDeleteInput = z.infer<typeof supplierDeleteInput>;

@@ -36,6 +36,7 @@ import {
   supplierDeleteInput,
   supplierPaymentInput,
   supplierSettlementInput,
+  supplierPaymentBatchInput,
   transferInput,
   wastageInput,
 } from "@/lib/accounting/schemas";
@@ -61,6 +62,7 @@ import type {
   SupplierEditInput,
   SupplierDeleteInput,
   SupplierSettlementInput,
+  SupplierPaymentBatchInput,
   TransferInput,
   WastageInput,
 } from "@/lib/accounting/schemas";
@@ -346,7 +348,7 @@ async function reverseReceipt(
     for (const payment of item.stockReceipt.payable.payments) {
       await tx.supplierPayment.update({
         where: { id: payment.id },
-        data: { appliedAmount: ZERO, advanceAmount: payment.amount },
+        data: { appliedAmount: payment.amount, advanceAmount: ZERO },
       });
     }
     await tx.supplierPayable.update({ where: { id: item.stockReceipt.payable.id }, data: { status: PayableStatus.VOID } });
@@ -479,23 +481,53 @@ export async function postSupplierSettlement(input: SupplierSettlementInput) {
   return runIdempotent("supplier-settlement", input.idempotencyKey, async (tx) => {
     const { payable, paid, remaining } = await payableOutstanding(tx, input.payableId);
     const paymentAmount = money(input.paymentAmount);
-    const appliedAmount = money(paymentAmount.lessThan(remaining) ? paymentAmount : remaining);
-    const advanceAmount = money(paymentAmount.minus(appliedAmount));
+    if (paymentAmount.greaterThan(remaining)) throw new AccountingError("Payment cannot exceed the invoice balance.", 409);
 
     const account = await requireOrCreatePaymentAccount(tx, input.accountId, input.paymentMethod);
     const movement = await tx.moneyMovement.create({
       data: { occurredAt: input.paidAt, amount: paymentAmount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: account.id, reference: payable.id, notes: input.notes },
     });
     const payment = await tx.supplierPayment.create({
-      data: { payableId: payable.id, paidAt: input.paidAt, amount: paymentAmount, appliedAmount, advanceAmount, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes },
+      data: { payableId: payable.id, paidAt: input.paidAt, amount: paymentAmount, appliedAmount: paymentAmount, advanceAmount: ZERO, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes },
     });
 
-    const totalSettled = paid.plus(appliedAmount);
+    const totalSettled = paid.plus(paymentAmount);
     await tx.supplierPayable.update({
       where: { id: payable.id },
       data: { status: totalSettled.equals(payable.originalAmount) ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID },
     });
     return payment;
+  });
+}
+
+export async function postSupplierPaymentBatch(input: SupplierPaymentBatchInput) {
+  input = supplierPaymentBatchInput.parse(input);
+  return runIdempotent("supplier-payment-batch", input.idempotencyKey, async (tx) => {
+    const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+    if (!supplier || !supplier.isActive) throw new AccountingError("Supplier is not active.", 404);
+    const amount = money(input.paymentAmount);
+    const payables = await tx.supplierPayable.findMany({
+      where: { supplierId: supplier.id, status: { in: [PayableStatus.OPEN, PayableStatus.PARTIALLY_PAID] } },
+      orderBy: [{ payableDate: "asc" }, { createdAt: "asc" }],
+      include: { payments: { select: { appliedAmount: true } } },
+    });
+    const outstanding = payables.map((payable) => ({ payable, remaining: money(D(payable.originalAmount).minus(sum(payable.payments.map((payment) => payment.appliedAmount)))) })).filter((row) => row.remaining.greaterThan(ZERO));
+    const totalOutstanding = money(sum(outstanding.map((row) => row.remaining)));
+    if (!amount.greaterThan(ZERO)) throw new AccountingError("Payment amount must be greater than zero.");
+    if (amount.greaterThan(totalOutstanding)) throw new AccountingError(`Payment cannot exceed the ${supplier.name} balance of ${totalOutstanding.toFixed(2)}.`, 409);
+    const account = await requireOrCreatePaymentAccount(tx, undefined, input.paymentMethod);
+    let left = amount;
+    const payments = [];
+    for (const row of outstanding) {
+      if (!left.greaterThan(ZERO)) break;
+      const applied = money(left.lessThan(row.remaining) ? left : row.remaining);
+      const movement = await tx.moneyMovement.create({ data: { occurredAt: input.paidAt, amount: applied, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: account.id, reference: row.payable.id, notes: input.notes ?? `Payment to ${supplier.name}` } });
+      const payment = await tx.supplierPayment.create({ data: { payableId: row.payable.id, paidAt: input.paidAt, amount: applied, appliedAmount: applied, advanceAmount: ZERO, method: input.paymentMethod, moneyMovementId: movement.id, notes: input.notes } });
+      await tx.supplierPayable.update({ where: { id: row.payable.id }, data: { status: applied.equals(row.remaining) ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID } });
+      payments.push(payment);
+      left = money(left.minus(applied));
+    }
+    return { id: payments[0].id, paymentCount: payments.length, amount, supplier: supplier.name };
   });
 }
 
@@ -977,9 +1009,8 @@ export async function getRecentChickenReceipts(limit = 25) {
     const averageKgPerBird = item.birdCount > 0 ? weight(quantityKg.div(birds)) : ZERO;
     const wastagePerBirdKg = weight(item.wastagePerBirdKg);
     const paidAmount = money(sum(receipt.payable?.payments.map((payment) => payment.appliedAmount) ?? []));
-    const advanceAmount = money(sum(receipt.payable?.payments.map((payment) => payment.advanceAmount) ?? []));
     const remainingAmount = money(D(receipt.payable?.originalAmount ?? estimate.totalAmount).minus(paidAmount));
-    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: estimate.purchaseRate, totalAmount: estimate.totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg: estimate.wastageKg, meatKg: estimate.meatKg, sellingRate: estimate.sellingRate, salesAmount: estimate.salesAmount, profit: estimate.profit, paidAmount, remainingAmount, advanceAmount };
+    return { id: item.id, receivedAt: receipt.receivedAt, supplierId: receipt.supplierId, supplier: receipt.supplier.name, chickenTypeId: item.chickenTypeId, chickenType: item.chickenType.name, birdCount: item.birdCount, quantityKg, purchaseRate: estimate.purchaseRate, totalAmount: estimate.totalAmount, averageKgPerBird, wastagePerBirdKg, wastageKg: estimate.wastageKg, meatKg: estimate.meatKg, sellingRate: estimate.sellingRate, salesAmount: estimate.salesAmount, profit: estimate.profit, paidAmount, remainingAmount };
   }));
 }
 
@@ -1217,9 +1248,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       supplier: receipt.supplier.name,
       customer: null,
       chickenType: null,
-      description: payment.advanceAmount.greaterThan(ZERO)
-        ? `Payment to ${receipt.supplier.name} · ${money(payment.appliedAmount).toFixed(2)} invoice + ${money(payment.advanceAmount).toFixed(2)} advance`
-        : `Payment to ${receipt.supplier.name}`,
+      description: `Payment to ${receipt.supplier.name}`,
       entryType: "PAYMENT" as const,
       paymentMethod: payment.method,
       manualPaymentType: null,
@@ -1527,7 +1556,6 @@ export async function getSupplierCreditLines(limit?: number) {
   return receipts.flatMap((receipt) => {
     if (!receipt.payable) return [];
     const paidAmount = money(sum(receipt.payable.payments.map((payment) => payment.appliedAmount)));
-    const advanceAmount = money(sum(receipt.payable.payments.map((payment) => payment.advanceAmount)));
     const remainingAmount = money(D(receipt.payable.originalAmount).minus(paidAmount));
     const paymentMethods = [...new Set(receipt.payable.payments.map((payment) => payment.method))];
     const paymentMethod = paymentMethods.length ? paymentMethods.join(" + ") : null;
@@ -1548,13 +1576,27 @@ export async function getSupplierCreditLines(limit?: number) {
         averageKgPerBird,
         totalAmount: money(receipt.payable!.originalAmount),
         paidAmount,
-        advanceAmount,
         remainingAmount,
         paymentMethod,
         status: receipt.payable!.status,
       };
     });
   });
+}
+
+export async function getSupplierPaymentHistory() {
+  const payments = await prisma.supplierPayment.findMany({
+    orderBy: { paidAt: "desc" },
+    include: { payable: { include: { supplier: { select: { name: true } } } } },
+  });
+  return payments.map((payment) => ({
+    id: payment.id,
+    supplierId: payment.payable.supplierId,
+    supplier: payment.payable.supplier.name,
+    paidAt: payment.paidAt,
+    amount: money(payment.amount),
+    method: payment.method,
+  }));
 }
 
 export async function getPassbook(input: { accountId?: string; from?: Date; to?: Date; query?: string; type?: string }) {
