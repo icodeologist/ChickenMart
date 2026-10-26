@@ -5,6 +5,7 @@ import { Loader2, WalletCards, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { summarizeSupplierPayments } from "@/lib/accounting/supplier-credit-summary";
 
 type Supplier = { id: string; name: string };
 type Account = { id: string; type: "CASH" | "BANK" };
@@ -18,6 +19,7 @@ type Receipt = {
   chickenType: string;
   birdCount: number;
   quantityKg: string;
+  purchaseRate: string;
   averageKgPerBird: string;
   totalAmount: string;
   paidAmount: string;
@@ -34,10 +36,12 @@ type Settlement = {
   method: "CASH" | "UPI" | "NET_BANKING";
 };
 
-const money = (value: string) => `₹${new Intl.NumberFormat("en-IN", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-}).format(Number(value))}`;
+const money = (value: string) => {
+  const match = value.trim().match(/^(-?)(\d+)(?:\.(\d{1,2}))?$/);
+  if (!match) return `₹${value}`;
+  const grouped = new Intl.NumberFormat("en-IN").format(BigInt(match[2]));
+  return `${match[1]}₹${grouped}.${(match[3] ?? "").padEnd(2, "0")}`;
+};
 
 export default function CreditLinePage() {
   const [rows, setRows] = useState<Receipt[]>();
@@ -70,11 +74,18 @@ export default function CreditLinePage() {
       }),
     ]).then(([loadedRows, context]) => {
       if (!active) return;
-      const creditSuppliers = context.suppliers.filter((supplier) => supplier.name === "KSP" || supplier.name === "NPF");
+      const creditSupplierMap = new Map<string, Supplier>();
+      for (const supplier of context.suppliers) {
+        if (["KSP", "NPF"].includes(supplier.name.trim().toUpperCase())) creditSupplierMap.set(supplier.id, supplier);
+      }
+      for (const row of loadedRows) {
+        if (["KSP", "NPF"].includes(row.supplier.trim().toUpperCase())) creditSupplierMap.set(row.supplierId, { id: row.supplierId, name: row.supplier });
+      }
+      const creditSuppliers = [...creditSupplierMap.values()].sort((left, right) => left.name.localeCompare(right.name));
       setRows(loadedRows);
       setSuppliers(creditSuppliers);
       setAccounts(context.accounts);
-      setSupplierId(creditSuppliers.find((supplier) => supplier.name === "KSP")?.id ?? creditSuppliers[0]?.id ?? "");
+      setSupplierId(creditSuppliers.find((supplier) => supplier.name.trim().toUpperCase() === "KSP")?.id ?? creditSuppliers[0]?.id ?? "");
     }).catch((reason: Error) => {
       if (active) setError(reason.message);
     });
@@ -126,6 +137,7 @@ export default function CreditLinePage() {
     [rows, supplierId],
   );
   const advancePreview = settlement ? extraPayment(settlement.paymentAmount, settlement.row.remainingAmount) : null;
+  const paymentSummaries = useMemo(() => summarizeSupplierPayments(rows ?? []), [rows]);
 
   return (
     <main className="min-h-screen bg-[#f7f5f1] p-4 text-stone-900 sm:p-6">
@@ -152,7 +164,14 @@ export default function CreditLinePage() {
         {notice && <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">{notice}</p>}
         {!rows ? (
           <p className="flex items-center gap-2 py-12 text-stone-500"><Loader2 className="animate-spin" size={18}/>Loading entries…</p>
-        ) : (
+        ) : (<>
+          <section className="mb-5 grid gap-4 sm:grid-cols-2" aria-label="Supplier payments pending">
+            {paymentSummaries.map((summary) => <Card key={summary.supplier} className="border-emerald-200 bg-emerald-50 px-5 py-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[.12em] text-emerald-700">{summary.supplier} payment to make</p>
+              <p className="mt-2 text-3xl font-extrabold tabular-nums text-emerald-950">{money(summary.amount)}</p>
+              <p className="mt-2 text-sm text-emerald-800">{summary.pendingInvoices ? `${summary.pendingInvoices} pending ${summary.pendingInvoices === 1 ? "entry" : "entries"} still need payment.` : `Nothing is currently payable to ${summary.supplier}.`}</p>
+            </Card>)}
+          </section>
           <Card className="overflow-hidden border-stone-200 shadow-sm">
             <div className="flex items-center justify-between border-b border-stone-200 bg-white px-5 py-4">
               <div>
@@ -161,14 +180,15 @@ export default function CreditLinePage() {
               </div>
             </div>
             <div className="overflow-x-auto xl:overflow-visible">
-              <table className="w-full min-w-[1080px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
-                <colgroup><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[5%]"/><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[10%]"/><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[7%]"/><col className="w-[13%]"/></colgroup>
+              <table className="w-full min-w-[1180px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
+                <colgroup><col className="w-[6%]"/><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[5%]"/><col className="w-[7%]"/><col className="w-[7%]"/><col className="w-[7%]"/><col className="w-[9%]"/><col className="w-[7%]"/><col className="w-[8%]"/><col className="w-[8%]"/><col className="w-[8%]"/><col className="w-[13%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
                     <Head>Date</Head>
                     <Head>Supplier</Head>
-                    <Head>Chicken Type</Head>
+                    <Head>Chicken</Head>
                     <Head right>Birds</Head>
+                    <Head right>Bought / kg</Head>
                     <Head right>Total Weight</Head>
                     <Head right>Average Weight</Head>
                     <Head right>Total Amount</Head>
@@ -186,6 +206,7 @@ export default function CreditLinePage() {
                       <Cell><span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 font-bold text-emerald-800">{row.supplier}</span></Cell>
                       <Cell strong>{row.chickenType}</Cell>
                       <Cell right>{row.birdCount}</Cell>
+                      <Cell right strong>{money(row.purchaseRate)}</Cell>
                       <Cell right>{row.quantityKg} kg</Cell>
                       <Cell right>{row.averageKgPerBird} kg</Cell>
                       <Cell right strong>{money(row.totalAmount)}</Cell>
@@ -200,13 +221,13 @@ export default function CreditLinePage() {
                       </Cell>
                     </tr>
                   )) : (
-                    <tr><td colSpan={12} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
+                    <tr><td colSpan={13} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </Card>
-        )}
+        </>)}
 
         {settlement && (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="payment-title">

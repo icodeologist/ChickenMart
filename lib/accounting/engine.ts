@@ -1505,11 +1505,11 @@ export async function getAdminOverview() {
   };
 }
 
-export async function getSupplierCreditLines(limit = 100) {
+export async function getSupplierCreditLines(limit?: number) {
   const receipts = await prisma.stockReceipt.findMany({
     where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
     orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
-    take: limit,
+    ...(limit ? { take: limit } : {}),
     include: {
       supplier: { select: { name: true } },
       items: { include: { chickenType: { select: { name: true } } } },
@@ -1544,6 +1544,7 @@ export async function getSupplierCreditLines(limit = 100) {
         chickenType: item.chickenType.name,
         birdCount: item.birdCount,
         quantityKg,
+        purchaseRate: rate(item.unitCost),
         averageKgPerBird,
         totalAmount: money(receipt.payable!.originalAmount),
         paidAmount,

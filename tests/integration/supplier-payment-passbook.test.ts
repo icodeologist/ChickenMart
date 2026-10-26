@@ -108,6 +108,7 @@ describe("supplier payments in the passbook", () => {
     expect(creditLine?.paidAmount.toFixed(2)).toBe("1000.00");
     expect(creditLine?.remainingAmount.toFixed(2)).toBe("0.00");
     expect(creditLine?.advanceAmount.toFixed(2)).toBe("200.00");
+    expect(creditLine?.purchaseRate.toFixed(4)).toBe("100.0000");
 
     const receiptView = (await getRecentChickenReceipts()).find((row) => row.id === receipt.id || row.supplier === supplierName);
     expect(receiptView?.paidAmount.toFixed(2)).toBe("1000.00");
