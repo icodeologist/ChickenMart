@@ -36,6 +36,7 @@ type PassbookData = {
   totalCustomerCollections: string;
   customerOutstanding: string;
   supplierOutstanding: string;
+  todayCredit: string;
   balance: string;
   pagination: { page: number; pageSize: number; totalEntries: number; totalPages: number };
 };
@@ -70,7 +71,7 @@ function isPassbookData(value: unknown): value is PassbookData {
   if (!record.pagination || typeof record.pagination !== "object") return false;
   const pagination = record.pagination as Record<string, unknown>;
   if (![pagination.page, pagination.pageSize, pagination.totalEntries, pagination.totalPages].every((value) => typeof value === "number")) return false;
-  if (![record.totalPurchases, record.totalPayments, record.totalHardCash, record.totalUpi, record.totalCredit, record.totalExpenses, record.totalCustomerCollections, record.customerOutstanding, record.supplierOutstanding, record.balance].every((amount) => typeof amount === "string")) return false;
+  if (![record.totalPurchases, record.totalPayments, record.totalHardCash, record.totalUpi, record.totalCredit, record.totalExpenses, record.totalCustomerCollections, record.customerOutstanding, record.supplierOutstanding, record.todayCredit, record.balance].every((amount) => typeof amount === "string")) return false;
   return record.entries.every((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const row = entry as Record<string, unknown>;
@@ -195,10 +196,11 @@ export default function PassbookPage() {
                   <p className="mt-1 text-sm text-emerald-100/70">{data.pagination.totalEntries} {data.pagination.totalEntries === 1 ? "entry" : "entries"}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-5 sm:text-right">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:text-right">
                 <div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Balance</p><p className={`mt-1 text-2xl font-bold tabular-nums sm:text-3xl ${isNegative(data.balance) ? "text-rose-300" : "text-white"}`}>{formatMoney(data.balance)}</p></div>
                 <div><p className="text-xs font-semibold uppercase tracking-wider text-rose-300">Suppliers owed</p><p className="mt-1 text-2xl font-bold tabular-nums text-rose-200 sm:text-3xl">{formatMoney(data.supplierOutstanding)}</p></div>
                 <div><p className="text-xs font-semibold uppercase tracking-wider text-amber-300">Customers owe</p><p className="mt-1 text-2xl font-bold tabular-nums text-amber-200 sm:text-3xl">{formatMoney(data.customerOutstanding)}</p></div>
+                <div><p className="text-xs font-semibold uppercase tracking-wider text-sky-300">Today&apos;s credit</p><p className="mt-1 text-2xl font-bold tabular-nums text-sky-200 sm:text-3xl">{formatMoney(data.todayCredit)}</p></div>
               </div>
             </div>
 

@@ -1404,6 +1404,12 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
     ...customerCreditEntries
       .map((entry) => D(entry.amount).minus(sum(entry.payments.map((payment) => payment.amount)))),
   ]));
+  const kolkataDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" });
+  const todayKey = kolkataDate.format(now);
+  const todayCredit = money(sum([
+    ...creditSales.filter((sale) => kolkataDate.format(sale.soldAt) === todayKey).map((sale) => sale.totalAmount),
+    ...customerCreditEntries.filter((entry) => kolkataDate.format(entry.creditedAt) === todayKey).map((entry) => entry.amount),
+  ]));
   const supplierOutstanding = money(sum(receipts
     .filter((receipt) => receipt.payable?.status !== PayableStatus.VOID)
     .map((receipt) => D(receipt.payable?.originalAmount ?? ZERO).minus(sum(receipt.payable?.payments.map((payment) => payment.appliedAmount) ?? [])))));
@@ -1419,6 +1425,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
     totalCustomerCollections,
     customerOutstanding,
     supplierOutstanding,
+    todayCredit,
     balance: money(ledgerBalance),
     pagination: { page, pageSize, totalEntries, totalPages },
   };
