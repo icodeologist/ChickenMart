@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Bird, BookOpen, Drumstick, Loader2, Minus, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Bird, BookOpen, Drumstick, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -192,8 +192,7 @@ export default function AdminPage() {
 function BirdCounterCard({ counter, onAdjust }: { counter: BirdCounter; onAdjust: () => void }) {
   return <Card className="overflow-hidden border-emerald-200 bg-white shadow-sm">
     <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50 px-4 py-4 sm:px-5"><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-emerald-700 text-white"><Bird size={17}/></span><div><h2 className="font-bold text-emerald-950">Bird counter</h2><p className="text-xs text-emerald-700">Broiler and Tyson</p></div></div><Button type="button" onClick={onAdjust} className="h-9 gap-1.5 bg-emerald-700 px-3 hover:bg-emerald-800"><Plus size={15}/>Update</Button></div>
-    <div className="px-4 py-4 sm:px-5"><p className="text-4xl font-extrabold tabular-nums text-stone-950">{new Intl.NumberFormat("en-IN").format(counter.totalBirds)}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-stone-500">Total birds</p><div className="mt-4 grid grid-cols-2 gap-2">{counter.byType.map((type) => <div key={type.id} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="truncate text-xs font-semibold text-stone-500" title={type.name}>{type.name}</p><p className="mt-0.5 text-lg font-extrabold tabular-nums text-stone-900">{new Intl.NumberFormat("en-IN").format(type.count)}</p></div>)}</div></div>
-    {counter.recentAdjustments.length > 0 && <div className="border-t border-stone-100 px-4 py-3 sm:px-5"><p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-stone-400">Recent changes</p><div className="space-y-2">{counter.recentAdjustments.slice(0, 3).map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 truncate font-semibold text-stone-600" title={entry.notes || entry.chickenTypeName}>{entry.chickenTypeName}{entry.notes ? ` · ${entry.notes}` : ""}</span><span className={`inline-flex shrink-0 items-center gap-0.5 font-extrabold tabular-nums ${entry.direction === "ADD" ? "text-emerald-700" : "text-rose-700"}`}>{entry.direction === "ADD" ? <Plus size={12}/> : <Minus size={12}/>} {entry.quantity}</span></div>)}</div></div>}
+    <div className="grid grid-cols-2 gap-3 px-4 py-4 sm:px-5">{counter.byType.map((type) => <div key={type.id} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-3"><p className="truncate text-xs font-semibold text-stone-500" title={type.name}>{type.name}</p><p className="mt-1 text-2xl font-extrabold tabular-nums text-stone-900">{new Intl.NumberFormat("en-IN").format(type.count)}</p></div>)}</div>
   </Card>;
 }
 
