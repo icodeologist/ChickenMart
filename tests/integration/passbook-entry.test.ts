@@ -46,7 +46,8 @@ describe("manual passbook entries", () => {
     expect((await getPurchasePassbook()).balance.minus(balanceBefore).toFixed(2)).toBe("1.00");
   });
 
-  it("records UPI received in an active bank account", async () => {
+  it("records UPI without creating a separate bank account", async () => {
+    const accountCountBefore = await prisma.account.count();
     const result = await postManualPassbookEntry({
       idempotencyKey: "passbook-upi-test",
       entryDate: new Date("2026-10-20T18:00:00.000Z"),
@@ -60,9 +61,10 @@ describe("manual passbook entries", () => {
       include: { moneyMovement: { include: { toAccount: true } } },
     });
     expect(entry.moneyMovement?.type).toBe(MoneyMovementType.MANUAL_RECEIPT);
-    expect(entry.moneyMovement?.toAccount?.type).toBe("BANK");
+    expect(entry.paymentType).toBe("UPI");
     expect(entry.moneyMovement?.toAccount?.isActive).toBe(true);
     expect(entry.moneyMovement?.amount.toFixed(2)).toBe("500.00");
+    expect(await prisma.account.count()).toBe(accountCountBefore);
   });
 
   it("records credit without changing cash or bank", async () => {

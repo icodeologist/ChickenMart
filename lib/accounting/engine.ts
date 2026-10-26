@@ -897,8 +897,13 @@ export async function postManualPassbookEntry(input: ManualPassbookEntryInput) {
 
     if (input.paymentType !== "CREDIT") {
       const isExpense = input.paymentType === "EXPENSE";
-      const paymentMethod = input.paymentType === "UPI" ? "UPI" : "CASH";
-      const account = await requireOrCreatePaymentAccount(tx, undefined, paymentMethod);
+      // Manual passbook entries record how the payment was made on the entry
+      // itself. They should not create a new cash/bank ledger as a side effect.
+      const account = await tx.account.findFirst({
+        where: { isActive: true },
+        orderBy: [{ type: "asc" }, { createdAt: "asc" }],
+      });
+      if (!account) throw new AccountingError("Passbook money account was not found.", 404);
       const movement = await tx.moneyMovement.create({
         data: {
           occurredAt: input.entryDate,
