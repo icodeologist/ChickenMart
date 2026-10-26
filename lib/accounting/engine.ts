@@ -897,9 +897,8 @@ export async function postManualPassbookEntry(input: ManualPassbookEntryInput) {
 
     if (input.paymentType !== "CREDIT") {
       const isExpense = input.paymentType === "EXPENSE";
-      const accountType = input.paymentType === "UPI" ? AccountType.BANK : AccountType.CASH;
-      const account = await tx.account.findFirst({ where: { type: accountType, isActive: true }, orderBy: { createdAt: "asc" } });
-      if (!account) throw new AccountingError(`${accountType === AccountType.CASH ? "Cash" : "Bank"} account was not found.`, 404);
+      const paymentMethod = input.paymentType === "UPI" ? "UPI" : "CASH";
+      const account = await requireOrCreatePaymentAccount(tx, undefined, paymentMethod);
       const movement = await tx.moneyMovement.create({
         data: {
           occurredAt: input.entryDate,

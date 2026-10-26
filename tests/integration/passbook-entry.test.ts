@@ -46,6 +46,25 @@ describe("manual passbook entries", () => {
     expect((await getPurchasePassbook()).balance.minus(balanceBefore).toFixed(2)).toBe("1.00");
   });
 
+  it("records UPI received in an active bank account", async () => {
+    const result = await postManualPassbookEntry({
+      idempotencyKey: "passbook-upi-test",
+      entryDate: new Date("2026-10-20T18:00:00.000Z"),
+      description: "UPI collection",
+      amount: "500.00",
+      paymentType: "UPI",
+    });
+
+    const entry = await prisma.manualPassbookEntry.findUniqueOrThrow({
+      where: { id: result.id },
+      include: { moneyMovement: { include: { toAccount: true } } },
+    });
+    expect(entry.moneyMovement?.type).toBe(MoneyMovementType.MANUAL_RECEIPT);
+    expect(entry.moneyMovement?.toAccount?.type).toBe("BANK");
+    expect(entry.moneyMovement?.toAccount?.isActive).toBe(true);
+    expect(entry.moneyMovement?.amount.toFixed(2)).toBe("500.00");
+  });
+
   it("records credit without changing cash or bank", async () => {
     const before = await prisma.moneyMovement.count();
     const balanceBefore = (await getPurchasePassbook()).balance;
