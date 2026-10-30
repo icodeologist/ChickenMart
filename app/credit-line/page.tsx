@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, Printer, WalletCards, X } from "lucide-react";
+import { Loader2, Pencil, Printer, Trash2, WalletCards, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,10 +15,12 @@ type Receipt = {
   receivedAt: string;
   supplierId: string;
   supplier: string;
+  chickenTypeId: string;
   chickenType: string;
   birdCount: number;
   quantityKg: string;
   purchaseRate: string;
+  suggestedSellRate: string;
   averageKgPerBird: string;
   totalAmount: string;
   paidAmount: string;
@@ -34,6 +36,9 @@ type SupplierPayment = {
   method: "CASH" | "UPI" | "NET_BANKING";
 };
 type PaymentHistory = { id: string; supplierId: string; supplier: string; paidAt: string; amount: string; method: string };
+type ChickenType = { id: string; name: string };
+type ReceiptEdit = { supplierId: string; chickenTypeId: string; receivedAt: string; birdCount: string; quantityKg: string; unitCost: string; suggestedSellRate: string };
+type PaymentEdit = { id: string; supplier: string; paidAt: string; amount: string; method: SupplierPayment["method"] };
 
 const money = (value: string) => {
   const match = value.trim().match(/^(-?)(\d+)(?:\.(\d{1,2}))?$/);
@@ -60,10 +65,13 @@ export default function CreditLinePage() {
   const [rows, setRows] = useState<Receipt[]>();
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [chickenTypes, setChickenTypes] = useState<ChickenType[]>([]);
   const [supplierId, setSupplierId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [payment, setPayment] = useState<SupplierPayment>();
+  const [editing, setEditing] = useState<{ id: string; values: ReceiptEdit }>();
+  const [editingPayment, setEditingPayment] = useState<PaymentEdit>();
   const [saving, setSaving] = useState(false);
 
   const loadRows = useCallback(async () => {
@@ -92,7 +100,11 @@ export default function CreditLinePage() {
         if (!response.ok) return [] as PaymentHistory[];
         return response.json() as Promise<PaymentHistory[]>;
       }),
-    ]).then(([loadedRows, loadedSuppliers, loadedPayments]) => {
+      fetch(`/api/accounting/daily-entry-context?date=${new Date().toISOString().slice(0, 10)}`).then(async (response) => {
+        if (!response.ok) throw new Error("Could not load edit options.");
+        return response.json() as Promise<{ chickenTypes: ChickenType[] }>;
+      }),
+    ]).then(([loadedRows, loadedSuppliers, loadedPayments, context]) => {
       if (!active) return;
       const creditSupplierMap = new Map<string, Supplier>();
       for (const supplier of loadedSuppliers) {
@@ -104,6 +116,7 @@ export default function CreditLinePage() {
       const creditSuppliers = [...creditSupplierMap.values()].sort((left, right) => left.name.localeCompare(right.name));
       setRows(loadedRows);
       setPaymentHistory(loadedPayments);
+      setChickenTypes(context.chickenTypes);
       setSuppliers(creditSuppliers);
       setSupplierId(creditSuppliers.find((supplier) => supplier.name.trim().toUpperCase() === "KSP")?.id ?? creditSuppliers[0]?.id ?? "");
     }).catch((reason: Error) => {
@@ -167,6 +180,63 @@ export default function CreditLinePage() {
     }
   }
 
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editing) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/accounting/receipts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: `credit-line-edit-${crypto.randomUUID()}`, itemId: editing.id, ...editing.values, birdCount: Number(editing.values.birdCount), receivedAt: `${editing.values.receivedAt}T18:00:00.000Z` }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not edit supplier credit entry.");
+      await loadRows();
+      setEditing(undefined);
+      setNotice("Supplier credit entry updated.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not edit supplier credit entry."); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteEntry(row: Receipt) {
+    if (!window.confirm(`Delete this ${row.supplier} purchase? Existing payments remain in the Passbook.`)) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/accounting/receipts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: `credit-line-delete-${crypto.randomUUID()}`, itemId: row.id }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not delete supplier credit entry.");
+      await Promise.all([loadRows(), loadPaymentHistory()]);
+      setNotice("Supplier credit entry deleted.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete supplier credit entry."); }
+    finally { setSaving(false); }
+  }
+
+  async function savePaymentEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingPayment) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/accounting/supplier-payment-records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: `supplier-payment-edit-${crypto.randomUUID()}`, supplierPaymentId: editingPayment.id, paidAt: `${editingPayment.paidAt}T18:00:00.000Z`, amount: editingPayment.amount, paymentMethod: editingPayment.method }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not edit supplier payment.");
+      await Promise.all([loadRows(), loadPaymentHistory()]); setEditingPayment(undefined); setNotice("Supplier payment updated.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not edit supplier payment."); }
+    finally { setSaving(false); }
+  }
+
+  async function deletePayment(entry: PaymentHistory) {
+    if (!window.confirm(`Delete the ${money(entry.amount)} payment to ${entry.supplier}? The Passbook movement will be reversed.`)) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/accounting/supplier-payment-records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: `supplier-payment-delete-${crypto.randomUUID()}`, supplierPaymentId: entry.id }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not delete supplier payment.");
+      await Promise.all([loadRows(), loadPaymentHistory()]); setNotice("Supplier payment deleted.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete supplier payment."); }
+    finally { setSaving(false); }
+  }
+
   const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierId);
   const filteredRows = useMemo(
     () => rows?.filter((row) => row.supplier.trim().toUpperCase() === (selectedSupplier?.name ?? "").trim().toUpperCase()) ?? [],
@@ -214,8 +284,8 @@ export default function CreditLinePage() {
               </div>
             </div>
             <div className="overflow-x-auto xl:overflow-visible">
-              <table className="w-full min-w-[1180px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
-                <colgroup><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[10%]"/><col className="w-[6%]"/><col className="w-[9%]"/><col className="w-[10%]"/><col className="w-[10%]"/><col className="w-[11%]"/><col className="w-[9%]"/><col className="w-[10%]"/><col className="w-[8%]"/></colgroup>
+              <table className="w-full min-w-[1220px] border-collapse text-sm xl:min-w-0 xl:table-fixed">
+                <colgroup><col className="w-[8%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[6%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[10%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[9%]"/><col className="w-[4%]"/></colgroup>
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-100/90 text-xs font-bold uppercase tracking-wide text-stone-600">
                     <Head>Date</Head>
@@ -229,6 +299,7 @@ export default function CreditLinePage() {
                     <Head right>Paid</Head>
                     <Head right>Remaining</Head>
                     <Head>Through</Head>
+                    <Head right><span className="sr-only">Actions</span></Head>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -245,9 +316,10 @@ export default function CreditLinePage() {
                       <Cell right className="font-semibold text-emerald-700">{money(row.paidAmount)}</Cell>
                       <Cell right strong className={row.status === "PAID" ? "text-emerald-700" : "text-rose-700"}>{money(row.remainingAmount)}</Cell>
                       <Cell><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-700">{formatMethod(row.paymentMethod)}</span></Cell>
+                      <Cell right><span className="inline-flex gap-1"><button type="button" title="Edit supplier credit entry" aria-label="Edit supplier credit entry" className="inline-flex size-8 items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 hover:text-emerald-700" onClick={() => setEditing({ id: row.id, values: { supplierId: row.supplierId, chickenTypeId: row.chickenTypeId, receivedAt: row.receivedAt.slice(0, 10), birdCount: String(row.birdCount), quantityKg: row.quantityKg, unitCost: row.purchaseRate, suggestedSellRate: row.suggestedSellRate } })}><Pencil size={15}/></button><button type="button" disabled={saving} title="Delete supplier credit entry" aria-label="Delete supplier credit entry" className="inline-flex size-8 items-center justify-center rounded-lg text-stone-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40" onClick={() => void deleteEntry(row)}><Trash2 size={15}/></button></span></Cell>
                     </tr>
                   )) : (
-                    <tr><td colSpan={11} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
+                    <tr><td colSpan={12} className="p-12 text-center text-stone-500">No entries for {selectedSupplier?.name ?? "this supplier"} yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -260,10 +332,10 @@ export default function CreditLinePage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="border-b border-stone-200 bg-stone-100/90 text-left text-[11px] font-bold uppercase tracking-wide text-stone-600"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Supplier</th><th className="px-4 py-3 text-right">Amount</th><th className="px-4 py-3">Through</th></tr></thead>
+                <thead><tr className="border-b border-stone-200 bg-stone-100/90 text-left text-[11px] font-bold uppercase tracking-wide text-stone-600"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Supplier</th><th className="px-4 py-3 text-right">Amount</th><th className="px-4 py-3">Through</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody className="divide-y divide-stone-100">
-                  {paymentHistory.filter((payment) => ["KSP", "NPF"].includes(payment.supplier.trim().toUpperCase())).map((payment) => <tr key={payment.id} className="bg-white"><td className="whitespace-nowrap px-4 py-3 text-xs text-stone-500">{new Date(payment.paidAt).toLocaleDateString("en-IN")}</td><td className="px-4 py-3 text-xs font-bold">{payment.supplier}</td><td className="px-4 py-3 text-right text-xs font-bold tabular-nums text-emerald-700">{money(payment.amount)}</td><td className="px-4 py-3 text-xs">{formatMethod(payment.method)}</td></tr>)}
-                  {!paymentHistory.length && <tr><td colSpan={4} className="p-10 text-center text-sm text-stone-500">No supplier payments recorded yet.</td></tr>}
+                  {paymentHistory.filter((payment) => ["KSP", "NPF"].includes(payment.supplier.trim().toUpperCase())).map((payment) => <tr key={payment.id} className="bg-white"><td className="whitespace-nowrap px-4 py-3 text-xs text-stone-500">{new Date(payment.paidAt).toLocaleDateString("en-IN")}</td><td className="px-4 py-3 text-xs font-bold">{payment.supplier}</td><td className="px-4 py-3 text-right text-xs font-bold tabular-nums text-emerald-700">{money(payment.amount)}</td><td className="px-4 py-3 text-xs">{formatMethod(payment.method)}</td><td className="px-2 py-2 text-right"><span className="inline-flex gap-1"><button type="button" title="Edit supplier payment" aria-label="Edit supplier payment" onClick={() => setEditingPayment({ id: payment.id, supplier: payment.supplier, paidAt: payment.paidAt.slice(0, 10), amount: payment.amount, method: payment.method as SupplierPayment["method"] })} className="inline-flex size-8 items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 hover:text-emerald-700"><Pencil size={14}/></button><button type="button" title="Delete supplier payment" aria-label="Delete supplier payment" onClick={() => void deletePayment(payment)} className="inline-flex size-8 items-center justify-center rounded-lg text-stone-500 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={14}/></button></span></td></tr>)}
+                  {!paymentHistory.length && <tr><td colSpan={5} className="p-10 text-center text-sm text-stone-500">No supplier payments recorded yet.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -305,12 +377,44 @@ export default function CreditLinePage() {
             </Card>
           </div>
         )}
+        {editing && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-credit-line-title">
+            <Card className="w-full max-w-2xl rounded-b-none border-stone-200 bg-white shadow-2xl sm:rounded-xl">
+              <form onSubmit={saveEdit}>
+                <div className="flex items-start justify-between border-b border-stone-200 px-5 py-4"><div><h2 id="edit-credit-line-title" className="text-xl font-bold">Edit supplier credit entry</h2><p className="mt-1 text-sm text-stone-500">Existing payments stay attached to the corrected purchase.</p></div><button type="button" onClick={() => setEditing(undefined)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Close edit form"><X size={20}/></button></div>
+                <div className="grid gap-4 p-5 sm:grid-cols-2">
+                  <Field label="Date"><Input required type="date" value={editing.values.receivedAt} onChange={(event) => updateEdit("receivedAt", event.target.value)}/></Field>
+                  <Field label="Supplier"><select required value={editing.values.supplierId} onChange={(event) => updateEdit("supplierId", event.target.value)} className="h-10 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></Field>
+                  <Field label="Chicken"><select required value={editing.values.chickenTypeId} onChange={(event) => updateEdit("chickenTypeId", event.target.value)} className="h-10 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">{chickenTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></Field>
+                  <Field label="Birds"><Input required min="0" step="1" type="number" value={editing.values.birdCount} onChange={(event) => updateEdit("birdCount", event.target.value)}/></Field>
+                  <Field label="Total weight (kg)"><Input required min="0.001" step="0.001" inputMode="decimal" value={editing.values.quantityKg} onChange={(event) => updateEdit("quantityKg", event.target.value)}/></Field>
+                  <Field label="Bought / kg"><Input required min="0.0001" step="0.0001" inputMode="decimal" value={editing.values.unitCost} onChange={(event) => updateEdit("unitCost", event.target.value)}/></Field>
+                  <Field label="Selling rate / kg"><Input required min="0" step="0.0001" inputMode="decimal" value={editing.values.suggestedSellRate} onChange={(event) => updateEdit("suggestedSellRate", event.target.value)}/></Field>
+                </div>
+                <div className="flex justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4"><Button type="button" className="border border-stone-300 bg-white text-stone-700 shadow-none hover:bg-stone-100" onClick={() => setEditing(undefined)}>Cancel</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 animate-spin" size={16}/>}Save changes</Button></div>
+              </form>
+            </Card>
+          </div>
+        )}
+        {editingPayment && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-supplier-payment-title">
+            <Card className="w-full max-w-lg rounded-b-none border-stone-200 bg-white shadow-2xl sm:rounded-xl"><form onSubmit={savePaymentEdit}>
+              <div className="flex items-start justify-between border-b border-stone-200 px-5 py-4"><div><h2 id="edit-supplier-payment-title" className="text-xl font-bold">Edit supplier payment</h2><p className="mt-1 text-sm text-stone-500">{editingPayment.supplier} · the old Passbook movement will be reversed.</p></div><button type="button" onClick={() => setEditingPayment(undefined)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Close payment edit form"><X size={20}/></button></div>
+              <div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Date"><Input required type="date" value={editingPayment.paidAt} onChange={(event) => setEditingPayment({ ...editingPayment, paidAt: event.target.value })}/></Field><Field label="Amount"><Input required min="0.01" step="0.01" inputMode="decimal" value={editingPayment.amount} onChange={(event) => setEditingPayment({ ...editingPayment, amount: event.target.value })}/></Field><Field label="Paid through"><select value={editingPayment.method} onChange={(event) => setEditingPayment({ ...editingPayment, method: event.target.value as SupplierPayment["method"] })} className="h-10 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold"><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="NET_BANKING">Net Banking</option></select></Field></div>
+              <div className="flex justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4"><Button type="button" className="border border-stone-300 bg-white text-stone-700 shadow-none hover:bg-stone-100" onClick={() => setEditingPayment(undefined)}>Cancel</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 animate-spin" size={16}/>}Save changes</Button></div>
+            </form></Card>
+          </div>
+        )}
       </div>
     </main>
   );
 
   function updatePayment(key: keyof SupplierPayment, value: string) {
     setPayment((current) => current ? { ...current, [key]: value } as SupplierPayment : current);
+  }
+
+  function updateEdit(key: keyof ReceiptEdit, value: string) {
+    setEditing((current) => current ? { ...current, values: { ...current.values, [key]: value } } : current);
   }
 }
 

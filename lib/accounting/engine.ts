@@ -16,14 +16,20 @@ import {
   creditCustomerInput,
   chickenTypeInput,
   customerCreditPaymentInput,
+  customerCreditEntryDeleteInput,
+  customerCreditEntryEditInput,
   customerCreditEntryInput,
   customerCreditEntryPaymentInput,
+  customerCreditEntryPaymentDeleteInput,
+  customerCreditEntryPaymentEditInput,
   customerCreditSaleInput,
   customerCollectionInput,
   dailySaleInput,
   expenseInput,
   inventoryCorrectionInput,
   manualPassbookEntryInput,
+  manualPassbookEntryDeleteInput,
+  manualPassbookEntryEditInput,
   moneyCorrectionInput,
   ownerWithdrawalInput,
   receiptDeleteInput,
@@ -37,6 +43,8 @@ import {
   supplierPaymentInput,
   supplierSettlementInput,
   supplierPaymentBatchInput,
+  supplierPaymentDeleteInput,
+  supplierPaymentEditInput,
   transferInput,
   wastageInput,
 } from "@/lib/accounting/schemas";
@@ -45,14 +53,20 @@ import type {
   CreditCustomerInput,
   ChickenTypeInput,
   CustomerCreditPaymentInput,
+  CustomerCreditEntryDeleteInput,
   CustomerCreditEntryInput,
+  CustomerCreditEntryEditInput,
   CustomerCreditEntryPaymentInput,
+  CustomerCreditEntryPaymentDeleteInput,
+  CustomerCreditEntryPaymentEditInput,
   CustomerCreditSaleInput,
   CustomerCollectionInput,
   DailySaleInput,
   ExpenseInput,
   InventoryCorrectionInput,
   ManualPassbookEntryInput,
+  ManualPassbookEntryDeleteInput,
+  ManualPassbookEntryEditInput,
   MoneyCorrectionInput,
   OwnerWithdrawalInput,
   ReconciliationInput,
@@ -63,6 +77,8 @@ import type {
   SupplierDeleteInput,
   SupplierSettlementInput,
   SupplierPaymentBatchInput,
+  SupplierPaymentDeleteInput,
+  SupplierPaymentEditInput,
   TransferInput,
   WastageInput,
 } from "@/lib/accounting/schemas";
@@ -258,7 +274,7 @@ async function accountBalance(db: DbClient, accountId: string, asOf: Date) {
 }
 
 async function payableOutstanding(tx: Prisma.TransactionClient, payableId: string) {
-  const payable = await tx.supplierPayable.findUnique({ where: { id: payableId }, include: { payments: true } });
+  const payable = await tx.supplierPayable.findUnique({ where: { id: payableId }, include: { payments: { where: { voidedAt: null } } } });
   if (!payable || payable.status === PayableStatus.VOID) throw new AccountingError("Supplier payable is not available.", 404);
   const paid = sum(payable.payments.map((payment) => payment.appliedAmount));
   return { payable, paid, remaining: D(payable.originalAmount).minus(paid) };
@@ -313,7 +329,7 @@ async function reverseReceipt(
     where: { id: itemId },
     include: {
       inventoryMovement: { include: { reversedBy: true } },
-      stockReceipt: { include: { items: true, payable: { include: { payments: true } } } },
+      stockReceipt: { include: { items: true, payable: { include: { payments: { where: { voidedAt: null } } } } } },
     },
   });
   if (!item) throw new AccountingError("Chicken entry was not found.", 404);
@@ -359,6 +375,8 @@ async function reverseReceipt(
 export async function editReceipt(input: z.input<typeof receiptEditInput>) {
   input = receiptEditInput.parse(input);
   return runIdempotent("receipt-edit", input.idempotencyKey, async (tx) => {
+    const existingItem = await tx.stockReceiptItem.findUnique({ where: { id: input.itemId }, include: { stockReceipt: { include: { payable: { include: { payments: { where: { voidedAt: null } } } } } } } });
+    if (!existingItem) throw new AccountingError("Chicken entry was not found.", 404);
     const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
     if (!supplier || !supplier.isActive) throw new AccountingError("Supplier is not active.", 404);
     await requireActiveChickenTypes(tx, [input.chickenTypeId]);
@@ -368,12 +386,14 @@ export async function editReceipt(input: z.input<typeof receiptEditInput>) {
       throw new AccountingError("Wastage cannot exceed total chicken weight.");
     }
 
+    const lineAmount = exactLineAmount(input.quantityKg, input.unitCost);
+    const paidAmount = money(sum(existingItem.stockReceipt.payable?.payments.map((payment) => payment.amount) ?? []));
+    if (paidAmount.greaterThan(lineAmount)) throw new AccountingError("The edited total cannot be less than payments already made.", 409);
     const original = await reverseReceipt(tx, input.itemId, `Reversed for edit of chicken entry ${input.itemId}`);
     const receiptNumber = `EDIT-${crypto.randomUUID()}`.slice(0, 50);
     const receipt = await tx.stockReceipt.create({
       data: { receiptNumber, supplierId: input.supplierId, receivedAt: input.receivedAt, notes: `Replacement for receipt ${original.stockReceipt.receiptNumber}` },
     });
-    const lineAmount = exactLineAmount(input.quantityKg, input.unitCost);
     const item = await tx.stockReceiptItem.create({
       data: {
         stockReceiptId: receipt.id,
@@ -386,9 +406,12 @@ export async function editReceipt(input: z.input<typeof receiptEditInput>) {
         lineAmount,
       },
     });
-    await tx.supplierPayable.create({
-      data: { stockReceiptId: receipt.id, supplierId: input.supplierId, payableDate: toDateOnly(input.receivedAt), originalAmount: money(lineAmount), status: PayableStatus.OPEN, notes: `Replacement for receipt ${original.stockReceipt.receiptNumber}` },
+    const payable = await tx.supplierPayable.create({
+      data: { stockReceiptId: receipt.id, supplierId: input.supplierId, payableDate: toDateOnly(input.receivedAt), originalAmount: money(lineAmount), status: paidAmount.equals(lineAmount) ? PayableStatus.PAID : paidAmount.greaterThan(ZERO) ? PayableStatus.PARTIALLY_PAID : PayableStatus.OPEN, notes: `Replacement for receipt ${original.stockReceipt.receiptNumber}` },
     });
+    if (original.stockReceipt.payable?.payments.length) {
+      await tx.supplierPayment.updateMany({ where: { id: { in: original.stockReceipt.payable.payments.map((payment) => payment.id) } }, data: { payableId: payable.id } });
+    }
     return item;
   });
 }
@@ -509,7 +532,7 @@ export async function postSupplierPaymentBatch(input: SupplierPaymentBatchInput)
     const payables = await tx.supplierPayable.findMany({
       where: { supplierId: supplier.id, status: { in: [PayableStatus.OPEN, PayableStatus.PARTIALLY_PAID] } },
       orderBy: [{ payableDate: "asc" }, { createdAt: "asc" }],
-      include: { payments: { select: { appliedAmount: true } } },
+      include: { payments: { where: { voidedAt: null }, select: { appliedAmount: true } } },
     });
     const outstanding = payables.map((payable) => ({ payable, remaining: money(D(payable.originalAmount).minus(sum(payable.payments.map((payment) => payment.appliedAmount)))) })).filter((row) => row.remaining.greaterThan(ZERO));
     const totalOutstanding = money(sum(outstanding.map((row) => row.remaining)));
@@ -528,6 +551,48 @@ export async function postSupplierPaymentBatch(input: SupplierPaymentBatchInput)
       left = money(left.minus(applied));
     }
     return { id: payments[0].id, paymentCount: payments.length, amount, supplier: supplier.name };
+  });
+}
+
+async function reverseMoneyMovement(tx: Prisma.TransactionClient, movement: { id: string; occurredAt: Date; amount: Prisma.Decimal; type: MoneyMovementType; fromAccountId: string | null; toAccountId: string | null; reversedBy?: { id: string } | null }, notes: string) {
+  if (movement.reversedBy) throw new AccountingError("This money record was already reversed.", 409);
+  return tx.moneyMovement.create({ data: { occurredAt: new Date(), amount: movement.amount, type: MoneyMovementType.MONEY_ADJUSTMENT, fromAccountId: movement.toAccountId, toAccountId: movement.fromAccountId, reversalOfId: movement.id, reference: "Payment correction", notes } });
+}
+
+async function refreshPayableStatus(tx: Prisma.TransactionClient, payableId: string) {
+  const payable = await tx.supplierPayable.findUniqueOrThrow({ where: { id: payableId }, include: { payments: { where: { voidedAt: null }, select: { appliedAmount: true } } } });
+  if (payable.status === PayableStatus.VOID) return;
+  const paid = money(sum(payable.payments.map((payment) => payment.appliedAmount)));
+  await tx.supplierPayable.update({ where: { id: payable.id }, data: { status: paid.equals(payable.originalAmount) ? PayableStatus.PAID : paid.greaterThan(ZERO) ? PayableStatus.PARTIALLY_PAID : PayableStatus.OPEN } });
+}
+
+export async function editSupplierPayment(input: SupplierPaymentEditInput) {
+  input = supplierPaymentEditInput.parse(input);
+  return runIdempotent("supplier-payment-edit", input.idempotencyKey, async (tx) => {
+    const original = await tx.supplierPayment.findUnique({ where: { id: input.supplierPaymentId }, include: { replacement: true, payable: { include: { payments: { where: { voidedAt: null } } } }, moneyMovement: { include: { reversedBy: true } } } });
+    if (!original || original.voidedAt || original.replacement) throw new AccountingError("Supplier payment was not found or was already changed.", 404);
+    const amount = money(input.amount);
+    const otherPaid = money(sum(original.payable.payments.filter((payment) => payment.id !== original.id).map((payment) => payment.appliedAmount)));
+    if (amount.greaterThan(D(original.payable.originalAmount).minus(otherPaid))) throw new AccountingError("Payment exceeds the remaining supplier balance.", 409);
+    const account = await requireOrCreatePaymentAccount(tx, undefined, input.paymentMethod);
+    await reverseMoneyMovement(tx, original.moneyMovement, `Reversed to edit supplier payment ${original.id}`);
+    await tx.supplierPayment.update({ where: { id: original.id }, data: { voidedAt: new Date() } });
+    const movement = await tx.moneyMovement.create({ data: { occurredAt: input.paidAt, amount, type: MoneyMovementType.SUPPLIER_PAYMENT, fromAccountId: account.id, reference: original.payableId, notes: original.notes } });
+    const replacement = await tx.supplierPayment.create({ data: { payableId: original.payableId, paidAt: input.paidAt, amount, appliedAmount: amount, advanceAmount: ZERO, method: input.paymentMethod, moneyMovementId: movement.id, notes: original.notes, replacementOfId: original.id } });
+    await refreshPayableStatus(tx, original.payableId);
+    return replacement;
+  });
+}
+
+export async function deleteSupplierPayment(input: SupplierPaymentDeleteInput) {
+  input = supplierPaymentDeleteInput.parse(input);
+  return runIdempotent("supplier-payment-delete", input.idempotencyKey, async (tx) => {
+    const original = await tx.supplierPayment.findUnique({ where: { id: input.supplierPaymentId }, include: { replacement: true, moneyMovement: { include: { reversedBy: true } } } });
+    if (!original || original.voidedAt || original.replacement) throw new AccountingError("Supplier payment was not found or was already changed.", 404);
+    await reverseMoneyMovement(tx, original.moneyMovement, `Deleted supplier payment ${original.id}`);
+    await tx.supplierPayment.update({ where: { id: original.id }, data: { voidedAt: new Date() } });
+    await refreshPayableStatus(tx, original.payableId);
+    return { id: original.id };
   });
 }
 
@@ -1000,7 +1065,7 @@ export async function getRecentChickenReceipts(limit = 25) {
     include: {
       supplier: { select: { name: true } },
       items: { include: { chickenType: { select: { name: true } } } },
-      payable: { include: { payments: true } },
+      payable: { include: { payments: { where: { voidedAt: null } } } },
     },
   });
   return receipts.flatMap((receipt) => receipt.items.map((item) => {
@@ -1022,56 +1087,52 @@ export async function getRecentChickenReceipts(limit = 25) {
   }));
 }
 
+async function createManualPassbookEntry(
+  tx: Prisma.TransactionClient,
+  input: Pick<ManualPassbookEntryInput, "entryDate" | "description" | "amount" | "paymentType">,
+  replacementOfId?: string,
+) {
+  const amount = money(input.amount);
+  let moneyMovementId: string | undefined;
+  if (input.paymentType !== "CREDIT") {
+    const isExpense = input.paymentType === "EXPENSE";
+    const account = await tx.account.findFirst({ where: { isActive: true }, orderBy: [{ type: "asc" }, { createdAt: "asc" }] });
+    if (!account) throw new AccountingError("Passbook money account was not found.", 404);
+    const movement = await tx.moneyMovement.create({ data: { occurredAt: input.entryDate, amount, type: isExpense ? MoneyMovementType.EXPENSE_PAYMENT : MoneyMovementType.MANUAL_RECEIPT, fromAccountId: isExpense ? account.id : undefined, toAccountId: isExpense ? undefined : account.id, reference: isExpense ? "Business expense" : "Passbook entry", notes: input.description } });
+    moneyMovementId = movement.id;
+  }
+  const entry = await tx.manualPassbookEntry.create({ data: { entryDate: input.entryDate, description: input.description, amount, paymentType: input.paymentType, moneyMovementId, replacementOfId } });
+  if (input.paymentType === "EXPENSE" && moneyMovementId) await tx.expense.create({ data: { expenseDate: toDateOnly(input.entryDate), category: "Business expense", description: input.description, amount, moneyMovementId } });
+  return entry;
+}
+
+async function reverseManualPassbookEntry(tx: Prisma.TransactionClient, id: string, reason: string) {
+  const entry = await tx.manualPassbookEntry.findUnique({ where: { id }, include: { moneyMovement: { include: { reversedBy: true } }, replacement: { select: { id: true } } } });
+  if (!entry || entry.voidedAt || entry.replacement) throw new AccountingError("Passbook entry was not found or was already changed.", 404);
+  if (entry.moneyMovement?.reversedBy) throw new AccountingError("Passbook entry was already reversed.", 409);
+  if (entry.moneyMovement) await tx.moneyMovement.create({ data: { occurredAt: new Date(), amount: entry.moneyMovement.amount, type: MoneyMovementType.MONEY_ADJUSTMENT, fromAccountId: entry.moneyMovement.toAccountId, toAccountId: entry.moneyMovement.fromAccountId, reversalOfId: entry.moneyMovement.id, reference: "Passbook correction", notes: reason } });
+  await tx.manualPassbookEntry.update({ where: { id: entry.id }, data: { voidedAt: new Date() } });
+  return entry;
+}
+
 export async function postManualPassbookEntry(input: ManualPassbookEntryInput) {
   input = manualPassbookEntryInput.parse(input);
-  return runIdempotent("manual-passbook-entry", input.idempotencyKey, async (tx) => {
-    const amount = money(input.amount);
-    let moneyMovementId: string | undefined;
+  return runIdempotent("manual-passbook-entry", input.idempotencyKey, async (tx) => createManualPassbookEntry(tx, input));
+}
 
-    if (input.paymentType !== "CREDIT") {
-      const isExpense = input.paymentType === "EXPENSE";
-      // Manual passbook entries record how the payment was made on the entry
-      // itself. They should not create a new cash/bank ledger as a side effect.
-      const account = await tx.account.findFirst({
-        where: { isActive: true },
-        orderBy: [{ type: "asc" }, { createdAt: "asc" }],
-      });
-      if (!account) throw new AccountingError("Passbook money account was not found.", 404);
-      const movement = await tx.moneyMovement.create({
-        data: {
-          occurredAt: input.entryDate,
-          amount,
-          type: isExpense ? MoneyMovementType.EXPENSE_PAYMENT : MoneyMovementType.MANUAL_RECEIPT,
-          fromAccountId: isExpense ? account.id : undefined,
-          toAccountId: isExpense ? undefined : account.id,
-          reference: isExpense ? "Business expense" : "Passbook entry",
-          notes: input.description,
-        },
-      });
-      moneyMovementId = movement.id;
-    }
+export async function editManualPassbookEntry(input: ManualPassbookEntryEditInput) {
+  input = manualPassbookEntryEditInput.parse(input);
+  return runIdempotent("manual-passbook-entry-edit", input.idempotencyKey, async (tx) => {
+    const original = await reverseManualPassbookEntry(tx, input.manualPassbookEntryId, `Reversed to edit passbook entry ${input.manualPassbookEntryId}`);
+    return createManualPassbookEntry(tx, input, original.id);
+  });
+}
 
-    const entry = await tx.manualPassbookEntry.create({
-      data: {
-        entryDate: input.entryDate,
-        description: input.description,
-        amount,
-        paymentType: input.paymentType,
-        moneyMovementId,
-      },
-    });
-    if (input.paymentType === "EXPENSE" && moneyMovementId) {
-      await tx.expense.create({
-        data: {
-          expenseDate: toDateOnly(input.entryDate),
-          category: "Business expense",
-          description: input.description,
-          amount,
-          moneyMovementId,
-        },
-      });
-    }
-    return entry;
+export async function deleteManualPassbookEntry(input: ManualPassbookEntryDeleteInput) {
+  input = manualPassbookEntryDeleteInput.parse(input);
+  return runIdempotent("manual-passbook-entry-delete", input.idempotencyKey, async (tx) => {
+    const original = await reverseManualPassbookEntry(tx, input.manualPassbookEntryId, `Deleted passbook entry ${input.manualPassbookEntryId}`);
+    return { id: original.id };
   });
 }
 
@@ -1087,9 +1148,35 @@ export async function postCustomerCreditEntry(input: CustomerCreditEntryInput) {
   }));
 }
 
+export async function editCustomerCreditEntry(input: CustomerCreditEntryEditInput) {
+  input = customerCreditEntryEditInput.parse(input);
+  return runIdempotent("customer-credit-entry-edit", input.idempotencyKey, async (tx) => {
+    const entry = await tx.customerCreditEntry.findUnique({ where: { id: input.customerCreditEntryId }, include: { payments: { where: { voidedAt: null } }, replacement: { select: { id: true } } } });
+    if (!entry || entry.voidedAt || entry.replacement) throw new AccountingError("Customer credit entry was not found or was already changed.", 404);
+    const amount = money(input.amount);
+    const paidAmount = money(sum(entry.payments.map((payment) => payment.amount)));
+    if (amount.lessThan(paidAmount)) throw new AccountingError("The edited credit cannot be less than payments already received.", 409);
+    const replacement = await tx.customerCreditEntry.create({ data: { customerName: input.customerName, description: input.description, amount, creditedAt: input.creditedAt, replacementOfId: entry.id } });
+    if (entry.payments.length) await tx.customerCreditEntryPayment.updateMany({ where: { customerCreditEntryId: entry.id }, data: { customerCreditEntryId: replacement.id } });
+    await tx.customerCreditEntry.update({ where: { id: entry.id }, data: { voidedAt: new Date() } });
+    return replacement;
+  });
+}
+
+export async function deleteCustomerCreditEntry(input: CustomerCreditEntryDeleteInput) {
+  input = customerCreditEntryDeleteInput.parse(input);
+  return runIdempotent("customer-credit-entry-delete", input.idempotencyKey, async (tx) => {
+    const entry = await tx.customerCreditEntry.findUnique({ where: { id: input.customerCreditEntryId }, include: { replacement: { select: { id: true } } } });
+    if (!entry || entry.voidedAt || entry.replacement) throw new AccountingError("Customer credit entry was not found or was already changed.", 404);
+    await tx.customerCreditEntry.update({ where: { id: entry.id }, data: { voidedAt: new Date() } });
+    return { id: entry.id };
+  });
+}
+
 export async function getCustomerCreditEntries() {
   const entries = await prisma.customerCreditEntry.findMany({
-    include: { payments: { orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }] } },
+    where: { voidedAt: null },
+    include: { payments: { where: { voidedAt: null }, orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }] } },
     orderBy: [{ creditedAt: "desc" }, { createdAt: "desc" }],
   });
   return entries.flatMap((entry) => {
@@ -1104,9 +1191,9 @@ export async function postCustomerCreditEntryPayment(input: CustomerCreditEntryP
   return runIdempotent("customer-credit-entry-payment", input.idempotencyKey, async (tx) => {
     const entry = await tx.customerCreditEntry.findUnique({
       where: { id: input.customerCreditEntryId },
-      include: { payments: { select: { amount: true } } },
+      include: { payments: { where: { voidedAt: null }, select: { amount: true } } },
     });
-    if (!entry) throw new AccountingError("Customer credit entry was not found.", 404);
+    if (!entry || entry.voidedAt) throw new AccountingError("Customer credit entry was not found.", 404);
     if (input.paidAt < entry.creditedAt) throw new AccountingError("Payment date cannot be before the credit date.");
 
     const paidAmount = money(sum(entry.payments.map((payment) => payment.amount)));
@@ -1134,6 +1221,34 @@ export async function postCustomerCreditEntryPayment(input: CustomerCreditEntryP
         moneyMovementId: movement.id,
       },
     });
+  });
+}
+
+export async function editCustomerCreditEntryPayment(input: CustomerCreditEntryPaymentEditInput) {
+  input = customerCreditEntryPaymentEditInput.parse(input);
+  return runIdempotent("customer-credit-entry-payment-edit", input.idempotencyKey, async (tx) => {
+    const original = await tx.customerCreditEntryPayment.findUnique({ where: { id: input.customerCreditEntryPaymentId }, include: { replacement: true, customerCreditEntry: { include: { payments: { where: { voidedAt: null } } } }, moneyMovement: { include: { reversedBy: true } } } });
+    if (!original || original.voidedAt || original.replacement) throw new AccountingError("Customer payment was not found or was already changed.", 404);
+    const amount = money(input.amount);
+    const otherPaid = money(sum(original.customerCreditEntry.payments.filter((payment) => payment.id !== original.id).map((payment) => payment.amount)));
+    if (amount.greaterThan(D(original.customerCreditEntry.amount).minus(otherPaid))) throw new AccountingError("Payment exceeds the remaining customer credit.", 409);
+    if (input.paidAt < original.customerCreditEntry.creditedAt) throw new AccountingError("Payment date cannot be before the credit date.");
+    const account = await requireOrCreatePaymentAccount(tx, undefined, input.paymentMethod);
+    await reverseMoneyMovement(tx, original.moneyMovement, `Reversed to edit customer payment ${original.id}`);
+    await tx.customerCreditEntryPayment.update({ where: { id: original.id }, data: { voidedAt: new Date() } });
+    const movement = await tx.moneyMovement.create({ data: { occurredAt: input.paidAt, amount, type: MoneyMovementType.CUSTOMER_COLLECTION, toAccountId: account.id, reference: original.customerCreditEntryId, notes: `Payment from ${original.customerCreditEntry.customerName}` } });
+    return tx.customerCreditEntryPayment.create({ data: { customerCreditEntryId: original.customerCreditEntryId, paidAt: input.paidAt, amount, method: input.paymentMethod, moneyMovementId: movement.id, replacementOfId: original.id } });
+  });
+}
+
+export async function deleteCustomerCreditEntryPayment(input: CustomerCreditEntryPaymentDeleteInput) {
+  input = customerCreditEntryPaymentDeleteInput.parse(input);
+  return runIdempotent("customer-credit-entry-payment-delete", input.idempotencyKey, async (tx) => {
+    const original = await tx.customerCreditEntryPayment.findUnique({ where: { id: input.customerCreditEntryPaymentId }, include: { replacement: true, moneyMovement: { include: { reversedBy: true } } } });
+    if (!original || original.voidedAt || original.replacement) throw new AccountingError("Customer payment was not found or was already changed.", 404);
+    await reverseMoneyMovement(tx, original.moneyMovement, `Deleted customer payment ${original.id}`);
+    await tx.customerCreditEntryPayment.update({ where: { id: original.id }, data: { voidedAt: new Date() } });
+    return { id: original.id };
   });
 }
 
@@ -1210,10 +1325,10 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
         items: {
           include: { chickenType: { select: { name: true } } },
         },
-        payable: { include: { payments: { include: { moneyMovement: { select: { createdAt: true } } } } } },
+        payable: { include: { payments: { where: { voidedAt: null }, include: { moneyMovement: { select: { createdAt: true } } } } } },
       },
     }),
-    prisma.manualPassbookEntry.findMany(),
+    prisma.manualPassbookEntry.findMany({ where: { voidedAt: null } }),
     prisma.creditSale.findMany({
       include: {
         customer: { select: { name: true } },
@@ -1226,7 +1341,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
       select: { id: true, occurredAt: true, amount: true, fromAccountId: true, toAccountId: true },
     }),
     prisma.customerCreditEntry.findMany({
-      include: { payments: true },
+      include: { payments: { where: { voidedAt: null } } },
     }),
   ]);
 
@@ -1328,7 +1443,7 @@ export async function getPurchasePassbook(input: { period?: string | null; sort?
 
   const customerCreditSummaries = calculateDailyCustomerCreditSummaries([
     ...creditSales.map((sale) => ({ creditedAt: sale.soldAt, amount: sale.totalAmount, customerName: sale.customer.name })),
-    ...customerCreditEntries.map((entry) => ({ creditedAt: entry.creditedAt, amount: entry.amount, customerName: entry.customerName })),
+    ...customerCreditEntries.filter((entry) => !entry.voidedAt).map((entry) => ({ creditedAt: entry.creditedAt, amount: entry.amount, customerName: entry.customerName })),
   ], now);
 
   const entryOrder = { PURCHASE: 0, CUSTOMER_CREDIT: 1, PAYMENT: 2, CUSTOMER_PAYMENT: 3, MANUAL: 4 } as const;
@@ -1450,14 +1565,14 @@ export async function getAdminOverview() {
     }),
     prisma.supplierPayable.findMany({
       where: { status: { not: PayableStatus.VOID } },
-      include: { supplier: { select: { id: true, name: true } }, payments: { select: { appliedAmount: true } } },
+      include: { supplier: { select: { id: true, name: true } }, payments: { where: { voidedAt: null }, select: { appliedAmount: true } } },
     }),
     prisma.stockReceipt.findMany({
       where: { payable: { is: { status: { not: PayableStatus.VOID } } } },
       select: { receivedAt: true, items: { select: { quantityKg: true, birdCount: true, wastagePerBirdKg: true, unitCost: true, suggestedSellRate: true, lineAmount: true } } },
     }),
     prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.customerCreditEntry.findMany({ include: { payments: { select: { amount: true } } } }),
+    prisma.customerCreditEntry.findMany({ where: { voidedAt: null }, include: { payments: { where: { voidedAt: null }, select: { amount: true } } } }),
     getBirdCounter(),
   ]);
 
@@ -1560,6 +1675,7 @@ export async function getSupplierCreditLines(limit?: number) {
       payable: {
         include: {
           payments: {
+            where: { voidedAt: null },
             orderBy: { paidAt: "desc" },
             include: { moneyMovement: true },
           },
@@ -1584,10 +1700,12 @@ export async function getSupplierCreditLines(limit?: number) {
         receivedAt: receipt.receivedAt,
         supplierId: receipt.supplierId,
         supplier: receipt.supplier.name,
+        chickenTypeId: item.chickenTypeId,
         chickenType: item.chickenType.name,
         birdCount: item.birdCount,
         quantityKg,
         purchaseRate: rate(item.unitCost),
+        suggestedSellRate: rate(item.suggestedSellRate),
         averageKgPerBird,
         totalAmount: money(receipt.payable!.originalAmount),
         paidAmount,
@@ -1601,6 +1719,7 @@ export async function getSupplierCreditLines(limit?: number) {
 
 export async function getSupplierPaymentHistory() {
   const payments = await prisma.supplierPayment.findMany({
+    where: { voidedAt: null },
     orderBy: { paidAt: "desc" },
     include: { payable: { include: { supplier: { select: { name: true } } } } },
   });
@@ -1665,7 +1784,7 @@ export async function getMonthlyDetailedReport(year: number, month: number) {
     prisma.stockReceiptItem.findMany({ where: { stockReceipt: { receivedAt: { gte: from, lte: to } } }, include: { chickenType: true } }),
     prisma.dailySaleItem.findMany({ where: { dailySale: { businessDate: { gte: toDateOnly(from), lte: toDateOnly(to) } } }, include: { chickenType: true } }),
     prisma.ownerWithdrawal.findMany({ where: { withdrawnAt: { gte: from, lte: to } }, select: { amount: true } }),
-    prisma.customerCredit.findMany({ include: { collections: { select: { amount: true } } } }), prisma.supplierPayable.findMany({ include: { payments: { select: { appliedAmount: true } } } }),
+    prisma.customerCredit.findMany({ include: { collections: { select: { amount: true } } } }), prisma.supplierPayable.findMany({ include: { payments: { where: { voidedAt: null }, select: { appliedAmount: true } } } }),
     prisma.expense.groupBy({ by: ["category"], where: { expenseDate: { gte: toDateOnly(from), lte: toDateOnly(to) } }, _sum: { amount: true } }),
     prisma.accountReconciliation.findMany({ where: { reconciledAt: { lte: to } }, orderBy: { reconciledAt: "desc" }, include: { account: true } }),
   ]);

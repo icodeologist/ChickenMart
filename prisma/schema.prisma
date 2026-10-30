@@ -442,8 +442,12 @@ model SupplierPayment {
   method          SupplierPaymentMethod @default(CASH)
   moneyMovementId String                @unique @db.Uuid
   notes           String?               @db.Text
+  voidedAt        DateTime?             @db.Timestamptz(6)
+  replacementOfId String?               @unique @db.Uuid
   payable         SupplierPayable       @relation(fields: [payableId], references: [id], onDelete: Restrict)
   moneyMovement   MoneyMovement         @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+  replacementOf   SupplierPayment?      @relation("SupplierPaymentReplacement", fields: [replacementOfId], references: [id], onDelete: Restrict)
+  replacement     SupplierPayment?      @relation("SupplierPaymentReplacement")
 
   @@index([payableId, paidAt])
 }
@@ -523,41 +527,53 @@ model MoneyMovement {
 }
 
 model ManualPassbookEntry {
-  id              String              @id @default(uuid()) @db.Uuid
-  entryDate       DateTime            @db.Timestamptz(6)
-  description     String              @db.VarChar(200)
-  amount          Decimal             @db.Decimal(16, 2)
+  id              String               @id @default(uuid()) @db.Uuid
+  entryDate       DateTime             @db.Timestamptz(6)
+  description     String               @db.VarChar(200)
+  amount          Decimal              @db.Decimal(16, 2)
   paymentType     PassbookPaymentType
-  moneyMovementId String?             @unique @db.Uuid
-  createdAt       DateTime            @default(now()) @db.Timestamptz(6)
-  moneyMovement   MoneyMovement?      @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+  moneyMovementId String?              @unique @db.Uuid
+  createdAt       DateTime             @default(now()) @db.Timestamptz(6)
+  voidedAt        DateTime?            @db.Timestamptz(6)
+  replacementOfId String?              @unique @db.Uuid
+  moneyMovement   MoneyMovement?       @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+  replacementOf   ManualPassbookEntry? @relation("ManualPassbookReplacement", fields: [replacementOfId], references: [id], onDelete: Restrict)
+  replacement     ManualPassbookEntry? @relation("ManualPassbookReplacement")
 
   @@index([entryDate, createdAt])
   @@index([paymentType, entryDate])
 }
 
 model CustomerCreditEntry {
-  id           String                       @id @default(uuid()) @db.Uuid
-  customerName String                       @db.VarChar(140)
-  description  String                       @db.VarChar(200)
-  amount       Decimal                      @db.Decimal(16, 2)
-  creditedAt   DateTime                     @db.Timestamptz(6)
-  createdAt    DateTime                     @default(now()) @db.Timestamptz(6)
-  payments     CustomerCreditEntryPayment[]
+  id              String                       @id @default(uuid()) @db.Uuid
+  customerName    String                       @db.VarChar(140)
+  description     String                       @db.VarChar(200)
+  amount          Decimal                      @db.Decimal(16, 2)
+  creditedAt      DateTime                     @db.Timestamptz(6)
+  createdAt       DateTime                     @default(now()) @db.Timestamptz(6)
+  voidedAt        DateTime?                    @db.Timestamptz(6)
+  replacementOfId String?                      @unique @db.Uuid
+  payments        CustomerCreditEntryPayment[]
+  replacementOf   CustomerCreditEntry?         @relation("CustomerCreditEntryReplacement", fields: [replacementOfId], references: [id], onDelete: Restrict)
+  replacement     CustomerCreditEntry?         @relation("CustomerCreditEntryReplacement")
 
   @@index([creditedAt, createdAt])
 }
 
 model CustomerCreditEntryPayment {
-  id                    String                @id @default(uuid()) @db.Uuid
-  customerCreditEntryId String                @db.Uuid
-  paidAt                DateTime              @db.Timestamptz(6)
-  amount                Decimal               @db.Decimal(16, 2)
+  id                    String                      @id @default(uuid()) @db.Uuid
+  customerCreditEntryId String                      @db.Uuid
+  paidAt                DateTime                    @db.Timestamptz(6)
+  amount                Decimal                     @db.Decimal(16, 2)
   method                CustomerPaymentMethod
-  moneyMovementId       String                @unique @db.Uuid
-  createdAt             DateTime              @default(now()) @db.Timestamptz(6)
-  customerCreditEntry   CustomerCreditEntry   @relation(fields: [customerCreditEntryId], references: [id], onDelete: Restrict)
-  moneyMovement         MoneyMovement         @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+  moneyMovementId       String                      @unique @db.Uuid
+  createdAt             DateTime                    @default(now()) @db.Timestamptz(6)
+  voidedAt              DateTime?                   @db.Timestamptz(6)
+  replacementOfId       String?                     @unique @db.Uuid
+  customerCreditEntry   CustomerCreditEntry         @relation(fields: [customerCreditEntryId], references: [id], onDelete: Restrict)
+  moneyMovement         MoneyMovement               @relation(fields: [moneyMovementId], references: [id], onDelete: Restrict)
+  replacementOf         CustomerCreditEntryPayment? @relation("CustomerCreditEntryPaymentReplacement", fields: [replacementOfId], references: [id], onDelete: Restrict)
+  replacement           CustomerCreditEntryPayment? @relation("CustomerCreditEntryPaymentReplacement")
 
   @@index([customerCreditEntryId, paidAt])
 }

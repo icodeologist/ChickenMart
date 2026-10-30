@@ -105,6 +105,8 @@ export const supplierPaymentBatchInput = z.object({
   paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
   notes: trimmed.max(500).optional(),
 });
+export const supplierPaymentEditInput = z.object({ idempotencyKey, supplierPaymentId: uuid, paidAt: dateTime, amount: moneyString, paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]) });
+export const supplierPaymentDeleteInput = z.object({ idempotencyKey, supplierPaymentId: uuid });
 
 export const supplierInput = z.object({
   idempotencyKey,
@@ -143,6 +145,8 @@ export const manualPassbookEntryInput = z.object({
   amount: moneyString,
   paymentType: z.enum(["HARD_CASH", "UPI", "CREDIT", "EXPENSE"]),
 });
+export const manualPassbookEntryEditInput = manualPassbookEntryInput.extend({ manualPassbookEntryId: uuid });
+export const manualPassbookEntryDeleteInput = z.object({ idempotencyKey, manualPassbookEntryId: uuid });
 
 export const customerCreditEntryInput = z.object({
   idempotencyKey,
@@ -152,6 +156,9 @@ export const customerCreditEntryInput = z.object({
   creditedAt: dateTime,
 });
 
+export const customerCreditEntryEditInput = customerCreditEntryInput.extend({ customerCreditEntryId: uuid });
+export const customerCreditEntryDeleteInput = z.object({ idempotencyKey, customerCreditEntryId: uuid });
+
 export const customerCreditEntryPaymentInput = z.object({
   idempotencyKey,
   customerCreditEntryId: uuid,
@@ -160,6 +167,8 @@ export const customerCreditEntryPaymentInput = z.object({
   paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]),
   accountId: uuid.optional(),
 });
+export const customerCreditEntryPaymentEditInput = z.object({ idempotencyKey, customerCreditEntryPaymentId: uuid, paidAt: dateTime, amount: moneyString, paymentMethod: z.enum(["CASH", "UPI", "NET_BANKING"]) });
+export const customerCreditEntryPaymentDeleteInput = z.object({ idempotencyKey, customerCreditEntryPaymentId: uuid });
 
 const customerPaymentMethod = z.enum(["CASH", "UPI", "NET_BANKING"]);
 const customerSalePaymentMethod = z.enum(["CASH", "UPI", "NET_BANKING", "CREDIT"]);
@@ -248,14 +257,22 @@ export type ExpenseInput = z.infer<typeof expenseInput>;
 export type SupplierPaymentInput = z.infer<typeof supplierPaymentInput>;
 export type SupplierSettlementInput = z.infer<typeof supplierSettlementInput>;
 export type SupplierPaymentBatchInput = z.infer<typeof supplierPaymentBatchInput>;
+export type SupplierPaymentEditInput = z.infer<typeof supplierPaymentEditInput>;
+export type SupplierPaymentDeleteInput = z.infer<typeof supplierPaymentDeleteInput>;
 export type SupplierInput = z.infer<typeof supplierInput>;
 export type SupplierEditInput = z.infer<typeof supplierEditInput>;
 export type SupplierDeleteInput = z.infer<typeof supplierDeleteInput>;
 export type ChickenTypeInput = z.infer<typeof chickenTypeInput>;
 export type BirdCountAdjustmentInput = z.infer<typeof birdCountAdjustmentInput>;
 export type ManualPassbookEntryInput = z.infer<typeof manualPassbookEntryInput>;
+export type ManualPassbookEntryEditInput = z.infer<typeof manualPassbookEntryEditInput>;
+export type ManualPassbookEntryDeleteInput = z.infer<typeof manualPassbookEntryDeleteInput>;
 export type CustomerCreditEntryInput = z.infer<typeof customerCreditEntryInput>;
+export type CustomerCreditEntryEditInput = z.infer<typeof customerCreditEntryEditInput>;
+export type CustomerCreditEntryDeleteInput = z.infer<typeof customerCreditEntryDeleteInput>;
 export type CustomerCreditEntryPaymentInput = z.infer<typeof customerCreditEntryPaymentInput>;
+export type CustomerCreditEntryPaymentEditInput = z.infer<typeof customerCreditEntryPaymentEditInput>;
+export type CustomerCreditEntryPaymentDeleteInput = z.infer<typeof customerCreditEntryPaymentDeleteInput>;
 export type CreditCustomerInput = z.infer<typeof creditCustomerInput>;
 export type CustomerCreditSaleInput = z.infer<typeof customerCreditSaleInput>;
 export type CustomerCreditPaymentInput = z.infer<typeof customerCreditPaymentInput>;
